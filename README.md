@@ -24,7 +24,7 @@ Then $\sum_i |f(b_i)-f(a_i)| < \varepsilon$ whenever $\sum_i (b_i-a_i) < \delta$
 ### Expanding the proof
 
 ```
-/expand Lemma 2.1
+/expand lem:abscont
 ```
 
 At the default `standard` depth, Claude leaves the original proof untouched and inserts a block tagged with the lemma's `\label`:
@@ -48,8 +48,9 @@ In the PDF the block appears indented and in dark orange. On the first run, Clau
 
 Other ways to call it:
 
-- `/expand quick Lemma 2.1`: a few short hints for an expert reader.
-- `/expand full Lemma 2.1`: every step written out, one manipulation per line.
+- `/expand Lemma 2.1`: the result's name or number works too, as well as its `\label`.
+- `/expand quick lem:abscont`: a few short hints for an expert reader.
+- `/expand full lem:abscont`: every step written out, one manipulation per line.
 - `/expand full @paper.tex#L120-125`: expand only those lines, for example one step that is still unclear after a `quick` pass. Running `/expand` again on the same result replaces its earlier blocks instead of adding to them.
 
 If a step does not follow, the block says so (`Gap: … does not follow because …`) instead of patching the proof.
@@ -57,8 +58,8 @@ If a step does not follow, the block says so (`Gap: … does not follow because 
 ### Hiding, showing and removing the blocks
 
 ```
-/expansions hide Lemma 2.1   # hide this lemma's blocks: adds \hideexpansionsof{lem:abscont} to the preamble
-/expansions show Lemma 2.1   # show them again
+/expansions hide lem:abscont # hide this lemma's blocks: adds \hideexpansionsof{lem:abscont} to the preamble
+/expansions show lem:abscont # show them again
 /expansions hide             # hide every block: \showexpansionstrue becomes \showexpansionsfalse
 /expansions strip            # write main-clean.tex (and clean copies of \input files) with no blocks
 ```
