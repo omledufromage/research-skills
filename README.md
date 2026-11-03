@@ -9,7 +9,7 @@ Two Claude skills for working through proofs in LaTeX documents.
 
 ## Example
 
-Say `paper.tex` contains this lemma, whose proof leaves out the key estimate:
+Say `paper.tex` contains this lemma. Its proof chooses $\delta = \varepsilon/L$ but never shows why that choice works: it skips applying the Lipschitz bound to each interval and summing.
 
 ```latex
 \begin{lemma}\label{lem:abscont}
