@@ -1,4 +1,4 @@
-# LaTeX proof expansions — Claude skills
+# Research skills for Claude
 
 Claude skills for writing mathematical research papers in LaTeX: two for working through proofs, and one that sets up a new research project with a team of Claude Code agents.
 
