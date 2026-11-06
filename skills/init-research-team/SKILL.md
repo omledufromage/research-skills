@@ -5,7 +5,7 @@ description: "Use in Claude Code when starting a new research project, to scaffo
 
 # Initialise a research team in a new project
 
-This skill sets up a new project with the same structure as Marcio's WP0 project: a `Paper/` folder (the LaTeX manuscript, synced with Overleaf, where the Claude Code session runs with `lead` as the main agent) and a `Code/` folder next to it (simulation code, its own git repository on GitHub, worked on by the `numerics` agent). It writes every configuration file from the templates below. The team is lead, prover, latex-editor, referee, factchecker, lit-scout, numerics, code-reviewer and hr; proof expansions go through the `/expand` and `/expansions` skills, not through an agent.
+This skill sets up a new project with the same structure as Marcio's WP0 project: a `Paper/` folder (the LaTeX manuscript, synced with Overleaf, where the Claude Code session runs with `lead` as the main agent) and a `Code/` folder next to it (simulation code, its own git repository on GitHub, worked on by the `numerics` agent). It writes every configuration file from the templates below. The team is lead, prover, latex-editor, referee, factchecker, lit-scout, numerics, code-reviewer and hr; proof expansions go through the `/expand` and `/expansions` skills, not through an agent. A guard hook (4.9) enforces the ownership and git rules, so they do not rest on the agents' instructions alone.
 
 Run it in **Claude Code** (desktop Code tab, CLI or VS Code), not in Cowork: it must write `.claude/` and run `git`.
 
@@ -29,7 +29,9 @@ Ask for these in one go (use AskUserQuestion where it helps), and show the fille
 | `{{GITHUB_URL}}` | URL of the GitHub repository for `Code/`, or "create" (private, with `gh`), or "none yet" | ask |
 | `{{TODAY}}` | Today's date, YYYY-MM-DD | from the shell |
 
-Replace every placeholder in the templates. After writing, `grep -rn "{{" {{ROOT}}/Paper {{ROOT}}/Code --include=*.md --include=*.json --include=*.tex --include=.gitignore` must print nothing.
+Replace every placeholder in the templates. After writing, `grep -rnE "\{\{[A-Z_]+\}\}" {{ROOT}}/Paper {{ROOT}}/Code --include=*.md --include=*.json --include=*.tex --include=*.py --include=.gitignore` must print nothing.
+
+The guard (4.9) needs `python3`: check `python3 --version` before writing anything, and if it is missing, say so and stop.
 
 ## 2. Safety rules for this skill
 
@@ -44,7 +46,7 @@ Replace every placeholder in the templates. After writing, `grep -rn "{{" {{ROOT
 2. **Paper.**
    - If `{{OVERLEAF_URL}}` is given and `{{ROOT}}/Paper` does not exist: `cd {{ROOT}} && timeout 120 git clone {{OVERLEAF_URL}} Paper`. (Overleaf asks for a git authentication token as the password; if the clone hangs or fails, tell the user and continue with `git init`, adding the remote later.)
    - Otherwise: `mkdir -p {{ROOT}}/Paper && git -C {{ROOT}}/Paper init -b main`, and if a URL is given, `git -C {{ROOT}}/Paper remote add origin {{OVERLEAF_URL}}`.
-   - `mkdir -p {{ROOT}}/Paper/{.claude/agents,Figures,scratch}`.
+   - `mkdir -p {{ROOT}}/Paper/{.claude/agents,.claude/hooks,Figures,scratch}`.
 3. **Code.**
    - `mkdir -p {{ROOT}}/Code/{.claude,R,simulations,tests,reviews,results,logs}` (for Python, `src` instead of `R`), and `git -C {{ROOT}}/Code init -b main`.
    - If `{{GITHUB_URL}}` is a URL: `git -C {{ROOT}}/Code remote add origin {{GITHUB_URL}}`.
@@ -195,6 +197,15 @@ Also create an empty `Paper/References.bib` if none exists.
 - Never delete a file unless {{OWNER}} has asked for that specific deletion. Make a backup or a git commit before a large edit.
 - Code uses fixed random seeds, and every figure and table is produced by a script in the project.
 - When {{OWNER}} asks a question, discuss before editing; do not edit what has not been asked to change.
+
+## Enforced rules
+
+A guard, `.claude/hooks/guard.py`, runs before every Bash, Edit and Write call by the lead and every agent, and refuses calls that break these rules; {{OWNER}} changes it and the settings files by hand only (then `python3 .claude/hooks/guard.py --self-test`). If the guard refuses a call, do not try another way to do the same thing: report the refusal to the lead, who reports it to {{OWNER}}.
+
+- Who writes where, inside the project (anything outside it, such as a session scratchpad, and `scratch/` are free): the lead writes `NOTES.md`, `TODO.md`, `COORDINATION.md`, `CLAUDE.md`, `.gitignore`, the team files in `.claude/` and `.tex` files; prover the `.tex` files; latex-editor the `.tex` and `.bib` files; referee and factchecker only their `*.referee.md` / `*.factcheck.md` reports; code-reviewer only its report in `../Code/reviews/`; numerics `../Code`, except `results/` (written by the scripts) and never `Figures/{{P}}_*` by hand; hr the agent files and `review-rules.md`; any other agent only `scratch/`.
+- Git: only the lead commits here, only numerics commits in `../Code`; other agents use read-only git. No `commit -a` in any spelling, no `add -A`/`-u`/`.`/`-f`. Every push asks {{OWNER}}; force pushes are refused.
+- Nothing in the project is deleted, outside `scratch/` and LaTeX build files: no `rm`, `git rm`, `git clean`, `git checkout --`, `git restore`, `git reset --hard`, `git stash`, `git rebase`, `find -delete`, and no moving files out of the project.
+- Write paths out: the guard refuses a write whose target it cannot resolve (an unknown `$variable`).
 ```
 
 ### 4.5 `Paper/NOTES.md`
@@ -282,11 +293,22 @@ One row per setting the paper quotes. Must match the registry in `../Code/simula
   "env": {
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1"
   },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.py\"" }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "additionalDirectories": ["../Code"],
     "ask": [
       "Bash(git push *)",
-      "Bash(git -C ../Code push *)"
+      "Bash(git -C ../Code push *)",
+      "Bash(git -C * push*)"
     ],
     "deny": [
       "Edit(/{{ROOT}}/Code/results/**)",
@@ -301,15 +323,514 @@ One row per setting the paper quotes. Must match the registry in `../Code/simula
       "Bash(git -C * add -A*)",
       "Bash(git -C * add --all*)",
       "Bash(git -C * add -u*)",
-      "Bash(git -C * add .)"
+      "Bash(git -C * add .)",
+      "Bash(git add -f*)",
+      "Bash(git add --force*)",
+      "Bash(git -C * add -f*)",
+      "Bash(git -C * add --force*)",
+      "Edit(/{{ROOT}}/Paper/.claude/hooks/**)",
+      "Edit(/{{ROOT}}/Paper/.claude/settings.json)"
     ]
   }
 }
 ```
 
+The deny and ask rules are a second line of defence: they hold even if the guard cannot run, but they match the start of a command only (`git commit -qam` gets past `git commit -a*`), so the guard does the real checking.
+
 (`{{ROOT}}` starts with `/`, so `Edit(/{{ROOT}}/...)` becomes `Edit(//home/...)`.)
 
-### 4.9 `Paper/.claude/review-rules.md`
+### 4.9 `Paper/.claude/hooks/guard.py`
+
+The guard: a PreToolUse hook (registered in 4.8) that refuses the tool calls breaking the team's ownership and git rules, for the lead and every agent, instead of relying on the agents' instructions alone. It needs `python3`. Write it exactly as below, then make it executable (`chmod +x`). If the project has a separate repository for the team setup used through a git alias (as in WP0's `git setup`), set `SETUP_ALIAS` to the alias name; the lead may then run `git <alias> add -f <file>` and commit there.
+
+```python
+#!/usr/bin/env python3
+"""Guard for the research team: a Claude Code PreToolUse hook.
+
+Claude Code runs this before every Bash, Edit, Write, MultiEdit and NotebookEdit
+call made in the Paper session, by the lead and by every agent it launches. It
+refuses the calls that break the team's ownership and git rules (see "Enforced
+rules" in CLAUDE.md), whatever an agent's instructions say. Only {{OWNER}} changes
+this file and the settings files, by hand.
+
+After changing it, run:  python3 .claude/hooks/guard.py --self-test
+
+Limits: it reads the command text, so a program that writes files itself (an R
+or Python script, for instance) is not checked; and an unusual spelling of a
+shell command may get past it. The agents' instructions still apply.
+"""
+import json
+import os
+import re
+import shlex
+import sys
+
+# Simulation outputs in Paper/Figures/ start with this prefix; only the scripts in ../Code write them.
+FIG_PREFIX = "{{P}}"
+# Name of a git alias for a separate repository that versions the team setup (None if there is none).
+SETUP_ALIAS = None
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+PAPER = os.path.dirname(os.path.dirname(HERE))
+PROJECT = os.path.dirname(PAPER)
+CODE = os.path.join(PROJECT, "Code")
+
+GIT_READ = {"status", "log", "diff", "show", "rev-parse", "ls-files", "ls-tree", "blame", "check-ignore", "var", "archive",
+            "shortlog", "describe", "grep", "cat-file", "merge-base", "rev-list", "help", "version"}
+GIT_DESTRUCTIVE = {"rm", "clean", "filter-branch", "filter-repo", "rebase", "update-ref", "gc", "prune"}
+BUILD_FILES = (".aux", ".log", ".bbl", ".blg", ".bcf", ".fls", ".fdb_latexmk", ".out", ".toc", ".run.xml",
+               ".synctex.gz", ".nav", ".snm", ".lof", ".lot", ".xdv", ".dvi")  # LaTeX build files: anyone may delete them
+WRAPPERS = {"sudo", "nohup", "nice", "time", "command", "builtin", "exec", "stdbuf"}
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.S)
+
+
+def norm(path, cwd):
+    path = os.path.expanduser(path.strip("'\""))
+    if not os.path.isabs(path):
+        path = os.path.join(cwd, path)
+    return os.path.realpath(path)
+
+
+def under(path, folder):
+    folder = os.path.realpath(folder)
+    return path == folder or path.startswith(folder + os.sep)
+
+
+def is_protected(p):
+    """The guard and the settings: changed by hand only."""
+    for root in (PAPER, CODE):
+        claude = os.path.join(root, ".claude")
+        if under(p, os.path.join(claude, "hooks")):
+            return True
+        if under(p, claude) and os.path.basename(p) in ("settings.json", "settings.local.json"):
+            return True
+    return False
+
+
+def is_figure(p):
+    return under(p, os.path.join(PAPER, "Figures")) and os.path.basename(p).startswith(FIG_PREFIX + "_")
+
+
+def write_refusal(agent, p):
+    """None if `agent` may create, change or move the file at absolute path `p`; else the reason."""
+    if p in ("/dev/null", "/dev/stdout", "/dev/stderr"):
+        return None
+    if not under(p, PROJECT):
+        return None  # the guard protects the project; session scratchpads and the like are not its business
+    if is_protected(p):
+        return "the guard and the settings files are changed by {{OWNER}} only, by hand"
+    if under(p, os.path.join(PAPER, "scratch")):
+        return None
+    name = os.path.basename(p)
+    claude = os.path.join(PAPER, ".claude")
+    in_paper = under(p, PAPER) and not under(p, claude)
+    team = any(under(p, os.path.join(root, ".claude", d)) for root in (PAPER, CODE) for d in ("agents", "retired-agents"))
+    tex = in_paper and name.endswith(".tex") and not is_figure(p)
+    if agent == "lead":
+        ok = tex or team or p == os.path.join(claude, "review-rules.md") or (
+            os.path.dirname(p) == PAPER and name in ("NOTES.md", "TODO.md", "COORDINATION.md", "CLAUDE.md", ".gitignore"))
+        why = ("the lead edits only NOTES.md, TODO.md, COORDINATION.md, CLAUDE.md, the team files in .claude/ "
+               "(when {{OWNER}} asks) and expansion blocks in .tex files")
+    elif agent == "prover":
+        ok, why = tex, "the prover edits only the .tex files of the paper"
+    elif agent == "latex-editor":
+        ok = tex or (in_paper and name.endswith(".bib"))
+        why = "latex-editor edits only the .tex and .bib files of the paper"
+    elif agent == "referee":
+        ok, why = in_paper and name.endswith(".referee.md"), "the referee writes only its <deliverable>.referee.md report"
+    elif agent == "factchecker":
+        ok, why = in_paper and name.endswith(".factcheck.md"), "the factchecker writes only its <deliverable>.factcheck.md report"
+    elif agent == "code-reviewer":
+        ok = os.path.dirname(p) == os.path.join(CODE, "reviews") and name.endswith(".md")
+        why = "code-reviewer writes only its report in ../Code/reviews/"
+    elif agent == "numerics":
+        ok = (under(p, CODE) and not under(p, os.path.join(CODE, "results"))
+              and not under(p, os.path.join(CODE, ".claude")) and not under(p, os.path.join(CODE, ".git")))
+        why = ("numerics edits only ../Code (not ../Code/results/, which only the scripts write); "
+               "Figures/" + FIG_PREFIX + "_* are written by the scripts, never by hand")
+    elif agent == "hr":
+        ok = team or p == os.path.join(claude, "review-rules.md")
+        why = "hr edits only .claude/agents/, .claude/retired-agents/ and .claude/review-rules.md"
+    else:
+        ok, why = False, "agent '%s' may write only in scratch/" % agent
+    return None if ok else why
+
+
+def split_args(tokens):
+    return [t for t in tokens if not t.startswith("-")]
+
+
+def git_refusal(agent, tokens, cwd):
+    """Returns (decision, reason) for a git command, or None to allow it."""
+    i, repo = 1, cwd
+    while i < len(tokens) and tokens[i].startswith("-"):
+        if tokens[i] in ("-C", "-c", "--git-dir", "--work-tree") and i + 1 < len(tokens):
+            if tokens[i] == "-C":
+                repo = norm(tokens[i + 1], repo)
+            i += 2
+        else:
+            i += 1
+    if i >= len(tokens):
+        return None
+    sub, args = tokens[i], tokens[i + 1:]
+    setup = SETUP_ALIAS is not None and sub == SETUP_ALIAS
+    if setup:
+        if not args:
+            return None
+        sub, args = args[0], args[1:]
+    where = "Code" if under(repo, CODE) else "Paper"
+    if setup:
+        where = "setup"
+
+    if sub in GIT_READ or (sub == "branch" and not set(args) & {"-d", "-D", "-m", "-M", "--delete"}) \
+            or (sub == "remote" and (not args or args == ["-v"])) or (sub == "config" and "--get" in " ".join(args)) \
+            or (sub == "stash" and args[:1] == ["list"]):
+        return None
+    if sub == "fetch" and agent in ("lead", "numerics"):
+        return None
+    if sub == "push":
+        if agent != "lead":
+            return "deny", "only the lead pushes, and only with {{OWNER}}'s OK"
+        if set(args) & {"-f", "--force", "--force-with-lease", "--mirror", "--delete", "-d"}:
+            return "deny", "force pushes and remote deletions are {{OWNER}}'s to run"
+        return "ask", "pushing needs {{OWNER}}'s explicit OK"
+    if sub in GIT_DESTRUCTIVE or (sub == "reset" and "--hard" in args) \
+            or (sub == "checkout" and ("--" in args or "." in args or "-f" in args)) \
+            or (sub == "restore" and "--staged" not in args) \
+            or (sub == "stash" and args[:1] in (["drop"], ["clear"], [])) or (sub == "stash" and args[:1] == ["push"]):
+        return "deny", "git %s can discard work; ask {{OWNER}} to run it" % sub
+    owner = {"Paper": "lead", "setup": "lead", "Code": "numerics"}[where]
+    if agent != owner:
+        return "deny", "only %s runs git %s in %s; you may use read-only git (status, log, diff, show)" % (owner, sub, where)
+    if sub == "commit":
+        skip = False
+        for a in args:
+            if skip:
+                skip = False
+                continue
+            if a in ("--all", "--include") or re.fullmatch(r"-[A-Za-z]*a[A-Za-z]*", a):
+                return "deny", "commit explicit paths: no git commit -a / --all"
+            skip = a in ("-m", "-F", "-C", "-c", "--message", "--file", "--author", "--date")
+    if sub == "add":
+        flags = [a for a in args if a.startswith("-")]
+        paths = split_args(args)
+        if set(flags) & {"-A", "--all", "-u", "--update"} or any(p in (".", "*", ":/") for p in paths):
+            return "deny", "add explicit paths: no git add -A / -u / ."
+        if set(flags) & {"-f", "--force"}:
+            if not setup:
+                return "deny", "git add -f would commit ignored files (CLAUDE.md, NOTES.md, .claude/ ...) to Overleaf"
+            if any(p.rstrip("/") in (".claude", ".", "") for p in paths):
+                return "deny", "add the setup files one by one, never -f .claude"
+    return None
+
+
+def strip_heredocs(command):
+    """Drops the bodies of here-documents: they are data (text, code) fed to a command, not commands."""
+    out, ends = [], []
+    for line in command.split("\n"):
+        if ends:
+            if line.strip() == ends[0]:
+                ends.pop(0)
+            continue
+        ends = [m.group(2) for m in HEREDOC.finditer(line)]
+        out.append(HEREDOC.sub(" ", line))
+    return "\n".join(out)
+
+
+def segments(command):
+    """Splits a shell command into simple commands, as lists of words, respecting quotes.
+    Redirections come back as ("redirect", target) items at the end of each list."""
+    lex = shlex.shlex(strip_heredocs(command), posix=True, punctuation_chars=";&|()<>\n")
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    lex.commenters = ""
+    try:
+        words = list(lex)
+    except ValueError:  # unbalanced quotes: fall back to a rough split
+        words = re.split(r"[ \t\r]+|(?=[;&|()<>\n])|(?<=[;&|()<>\n])", command)
+    seg, redirects, i = [], [], 0
+    while i < len(words):
+        w = words[i]
+        if w and set(w) <= set(";&|()\n") and w not in ("&",):
+            yield seg, redirects
+            seg, redirects = [], []
+        elif w in (">", ">>", ">|", "&>", "&>>", ">&"):
+            if seg and seg[-1].isdigit():
+                seg.pop()
+            target = words[i + 1] if i + 1 < len(words) else ""
+            if not (w == ">&" and target.isdigit()) and target not in ("-",):
+                redirects.append(target)
+            i += 1
+        elif w in ("<", "<<<"):
+            i += 1
+        elif w and w != "&":
+            seg.append(w)
+        i += 1
+    yield seg, redirects
+
+
+def expand(word, variables):
+    def sub(m):
+        name = m.group(1) or m.group(2)
+        default = "/tmp" if name in ("TMPDIR", "TMP", "TEMP") else m.group(0)
+        return variables.get(name, os.environ.get(name, default))
+    return VARIABLE.sub(sub, word)
+
+
+def bash_refusal(agent, command, cwd, depth=0, variables=None):
+    if depth > 3:
+        return "deny", "command too deeply nested for the guard to check"
+    variables = {} if variables is None else variables
+
+    def target_refusal(target, label):
+        target = expand(target, variables)
+        p = norm(target, cwd)
+        if "$" in target and under(p, PROJECT) or "$" in target and not os.path.isabs(target):
+            return "deny", "%s %s: the guard cannot tell where this points; write the path out" % (label, target)
+        why = write_refusal(agent, p)
+        return ("deny", "%s %s: %s" % (label, target, why)) if why else None
+
+    for tokens, redirects in segments(command):
+        for target in redirects:
+            r = target_refusal(target, "redirection into")
+            if r:
+                return r
+        while tokens and (ASSIGNMENT.fullmatch(tokens[0]) or tokens[0] in WRAPPERS
+                          or tokens[0] in ("env", "timeout", "xargs")):
+            head = tokens.pop(0)
+            m = ASSIGNMENT.fullmatch(head)
+            if m:
+                variables[m.group(1)] = expand(m.group(2), variables)
+            if head == "timeout" and tokens and not tokens[0].startswith("-"):
+                tokens.pop(0)
+            while head in ("env", "timeout", "xargs") and tokens and tokens[0].startswith("-"):
+                tokens.pop(0)
+        if not tokens:
+            continue
+        tokens = [tokens[0]] + [expand(t, variables) for t in tokens[1:]]
+        cmd, args = os.path.basename(tokens[0]), tokens[1:]
+        files = split_args(args)
+        if cmd == "cd":
+            cwd = norm(files[0], cwd) if files else os.path.expanduser("~")
+            continue
+        if cmd in ("bash", "sh", "zsh", "dash") and "-c" in args:
+            i = args.index("-c")
+            if i + 1 < len(args):
+                r = bash_refusal(agent, args[i + 1], cwd, depth + 1, variables)
+                if r:
+                    return r
+            continue
+        if cmd == "eval":
+            r = bash_refusal(agent, " ".join(args), cwd, depth + 1, variables)
+            if r:
+                return r
+            continue
+        if cmd == "git":
+            r = git_refusal(agent, tokens, cwd)
+            if r:
+                return r
+            continue
+        if cmd in ("rm", "rmdir", "unlink", "shred", "trash", "gio"):
+            blocked = [f for f in files if ("$" in f or under(norm(f, cwd), PROJECT))
+                       and not under(norm(f, cwd), os.path.join(PAPER, "scratch")) and not f.endswith(BUILD_FILES)]
+            if blocked or not files:
+                return "deny", "deleting project files is {{OWNER}}'s decision (only scratch/ may be cleaned): %s" % " ".join(blocked or args)
+            continue
+        if cmd == "find" and ("-delete" in args or any(a in ("-exec", "-execdir", "-ok") for a in args)):
+            return "deny", "find with -delete or -exec is not allowed; list the files and act on them one by one"
+        targets = []
+        if cmd == "ln":
+            targets = files[-1:]
+        elif cmd in ("tee", "touch", "mkdir", "truncate", "chmod", "chown", "dd"):
+            targets = [f for f in files if not f.startswith(("if=", "bs=", "count=", "status="))]
+            targets += [a[3:] for a in args if a.startswith("of=")]
+            if cmd == "chmod" and targets:
+                targets = targets[1:]
+        elif cmd in ("cp", "install", "rsync", "scp"):
+            targets = files[-1:]
+        elif cmd == "mv":
+            targets = files
+            if len(files) > 1 and not under(norm(files[-1], cwd), PROJECT) and any(
+                    under(norm(f, cwd), PROJECT) and not under(norm(f, cwd), os.path.join(PAPER, "scratch")) for f in files[:-1]):
+                return "deny", "moving project files out of the project deletes them; that is {{OWNER}}'s decision"
+            if agent == "numerics" and any(under(norm(f, cwd), os.path.join(CODE, "results")) for f in files[:-1]):
+                dest = norm(files[-1], cwd)
+                if not (under(dest, os.path.join(CODE, "results")) and "superseded" in dest.split(os.sep)):
+                    return "deny", "results files may only be moved into results/<study>/superseded/"
+                targets = []
+        elif cmd in ("sed", "perl") and any(a.startswith(("-i", "--in-place")) or re.fullmatch(r"-[a-zA-Z]*i[a-zA-Z.]*", a) for a in args):
+            positional, has_script, skip = [], False, False
+            for a in args:
+                if skip:
+                    skip = False
+                elif a in ("-e", "--expression", "-f", "--file"):
+                    has_script = skip = True
+                elif not a.startswith("-"):
+                    positional.append(a)
+            targets = positional if has_script else positional[1:]
+        for t in targets:
+            r = target_refusal(t, cmd)
+            if r:
+                return r
+    return None
+
+
+def check(agent, tool, tool_input, cwd):
+    if tool == "Bash":
+        return bash_refusal(agent, tool_input.get("command", ""), cwd)
+    if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+        path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+        why = write_refusal(agent, norm(path, cwd))
+        return ("deny", why) if why else None
+    return None
+
+
+def main():
+    try:
+        data = json.load(sys.stdin)
+        agent = data.get("agent_type") or "lead"
+        result = check(agent, data.get("tool_name", ""), data.get("tool_input") or {}, data.get("cwd") or PAPER)
+    except Exception as exc:  # fail closed: a broken guard refuses rather than lets everything through
+        result = ("deny", "the guard itself failed (%s: %s); tell {{OWNER}}" % (type(exc).__name__, exc))
+    if result:
+        decision, reason = result
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": decision,
+            "permissionDecisionReason": "Guard (.claude/hooks/guard.py): " + reason +
+                (". Do not work around this; report it to the lead." if decision == "deny" else "."),
+        }}))
+    sys.exit(0)
+
+
+def self_test():
+    global PAPER, CODE
+    global PROJECT
+    PROJECT, PAPER, CODE = "/proj", "/proj/Paper", "/proj/Code"
+    P, C = PAPER, CODE
+    fig = "Figures/" + FIG_PREFIX + "_x.pdf"
+    cases = [
+        # (agent, tool, input, cwd, expected)
+        ("lead", "Edit", {"file_path": P + "/NOTES.md"}, P, "allow"),
+        ("lead", "Edit", {"file_path": P + "/sec/02_model.tex"}, P, "allow"),
+        ("lead", "Edit", {"file_path": C + "/R/helpers.R"}, P, "deny"),
+        ("lead", "Write", {"file_path": P + "/.claude/settings.json"}, P, "deny"),
+        ("lead", "Write", {"file_path": P + "/.claude/hooks/guard.py"}, P, "deny"),
+        ("lead", "Edit", {"file_path": P + "/" + fig}, P, "deny"),
+        ("prover", "Edit", {"file_path": "sec/03.tex"}, P, "allow"),
+        ("prover", "Edit", {"file_path": "References.bib"}, P, "deny"),
+        ("prover", "Write", {"file_path": "scratch/check.R"}, P, "allow"),
+        ("latex-editor", "Edit", {"file_path": "References.bib"}, P, "allow"),
+        ("referee", "Write", {"file_path": "main.referee.md"}, P, "allow"),
+        ("referee", "Write", {"file_path": "main.tex"}, P, "deny"),
+        ("factchecker", "Write", {"file_path": "main.factcheck.md"}, P, "allow"),
+        ("factchecker", "Write", {"file_path": "main.referee.md"}, P, "deny"),
+        ("code-reviewer", "Write", {"file_path": "../Code/reviews/2026-11-06-seeds.md"}, P, "allow"),
+        ("code-reviewer", "Edit", {"file_path": "../Code/R/fit.R"}, P, "deny"),
+        ("numerics", "Edit", {"file_path": C + "/R/fit.R"}, P, "allow"),
+        ("numerics", "Write", {"file_path": C + "/results/a/run.rds"}, P, "deny"),
+        ("numerics", "Write", {"file_path": P + "/" + fig}, P, "deny"),
+        ("numerics", "Edit", {"file_path": P + "/main.tex"}, P, "deny"),
+        ("hr", "Write", {"file_path": P + "/.claude/agents/new.md"}, P, "allow"),
+        ("hr", "Edit", {"file_path": P + "/.claude/agents/../settings.json"}, P, "deny"),
+        ("lit-scout", "Write", {"file_path": P + "/notes.md"}, P, "deny"),
+        ("general-purpose", "Write", {"file_path": P + "/scratch/a.txt"}, P, "allow"),
+        ("general-purpose", "Write", {"file_path": P + "/main.tex"}, P, "deny"),
+        # git
+        ("lead", "Bash", {"command": "git status --short && git diff main.tex"}, P, "allow"),
+        ("lead", "Bash", {"command": "git add sec/02.tex && git commit -m 'Fix'"}, P, "allow"),
+        ("lead", "Bash", {"command": "git commit -am 'x'"}, P, "deny"),
+        ("lead", "Bash", {"command": "git commit -m 'x' -a"}, P, "deny"),
+        ("lead", "Bash", {"command": "git commit -m 'add -a flag docs'"}, P, "allow"),
+        ("lead", "Bash", {"command": "git add -A"}, P, "deny"),
+        ("lead", "Bash", {"command": "git add ."}, P, "deny"),
+        ("lead", "Bash", {"command": "git add -f CLAUDE.md"}, P, "deny"),
+        ("lead", "Bash", {"command": "timeout 120 git push"}, P, "ask"),
+        ("lead", "Bash", {"command": "git -C /proj/Code push origin main"}, P, "ask"),
+        ("lead", "Bash", {"command": "cd ../Code && git push"}, P, "ask"),
+        ("lead", "Bash", {"command": "git push --force"}, P, "deny"),
+        ("lead", "Bash", {"command": "git -C ../Code commit -m x"}, P, "deny"),
+        ("lead", "Bash", {"command": "git -C ../Code log --oneline -10"}, P, "allow"),
+        ("lead", "Bash", {"command": "git reset --hard HEAD~1"}, P, "deny"),
+        ("lead", "Bash", {"command": "git checkout -- main.tex"}, P, "deny"),
+        ("numerics", "Bash", {"command": "git -C ../Code add R/fit.R && git -C ../Code commit -m 'Fit'"}, P, "allow"),
+        ("numerics", "Bash", {"command": "cd ../Code && git commit -m x"}, P, "allow"),
+        ("numerics", "Bash", {"command": "git -C ../Code push"}, P, "deny"),
+        ("numerics", "Bash", {"command": "git add Figures/x.pdf"}, P, "deny"),
+        ("prover", "Bash", {"command": "git commit -m 'x' main.tex"}, P, "deny"),
+        ("referee", "Bash", {"command": "git diff HEAD~1 -- main.tex | head"}, P, "allow"),
+        ("code-reviewer", "Bash", {"command": "git -C ../Code stash"}, P, "deny"),
+        # files through Bash
+        ("lead", "Bash", {"command": "rm main.tex"}, P, "deny"),
+        ("lead", "Bash", {"command": "rm -rf scratch/prover-build"}, P, "allow"),
+        ("numerics", "Bash", {"command": "cd ../Code && rm results/a/run.rds"}, P, "deny"),
+        ("lead", "Bash", {"command": "find . -name '*.aux' -delete"}, P, "deny"),
+        ("referee", "Bash", {"command": "echo hi > main.tex"}, P, "deny"),
+        ("referee", "Bash", {"command": "echo hi > scratch/t.txt 2>&1"}, P, "allow"),
+        ("referee", "Bash", {"command": "grep -a '^!' main.log 2>/dev/null | head"}, P, "allow"),
+        ("factchecker", "Bash", {"command": "sed -i 's/a/b/' main.tex"}, P, "deny"),
+        ("factchecker", "Bash", {"command": "sed -n '1,20p' main.tex"}, P, "allow"),
+        ("factchecker", "Bash", {"command": "latexmk -pdf -outdir=scratch/factcheck-build main.tex"}, P, "allow"),
+        ("code-reviewer", "Bash", {"command": "cd ../Code && Rscript tests/run_tests.R"}, P, "allow"),
+        ("code-reviewer", "Bash", {"command": "cd ../Code && Rscript -e '1' > R/x.R"}, P, "deny"),
+        ("numerics", "Bash", {"command": "nohup Rscript simulations/02_x.R > logs/02.log 2>&1 &"}, C, "allow"),
+        ("numerics", "Bash", {"command": "mv results/a/old.rds results/a/superseded/old.rds"}, C, "allow"),
+        ("numerics", "Bash", {"command": "mv results/a/old.rds /tmp/old.rds"}, C, "deny"),
+        ("numerics", "Bash", {"command": "cp out.pdf ../Paper/" + fig}, C, "deny"),
+        ("hr", "Bash", {"command": "mv .claude/agents/old.md .claude/retired-agents/old.md"}, P, "allow"),
+        ("hr", "Bash", {"command": "mv .claude/agents/old.md /tmp/old.md"}, P, "deny"),
+        ("lead", "Bash", {"command": "bash -c 'rm main.tex'"}, P, "deny"),
+        ("lead", "Bash", {"command": "ls | xargs rm"}, P, "deny"),
+        ("lead", "Bash", {"command": "tee .claude/hooks/guard.py < /dev/null"}, P, "deny"),
+        ("lead", "Bash", {"command": "latexmk -pdf -synctex=1 -interaction=nonstopmode main.tex"}, P, "allow"),
+        # quoting, here-documents, variables, places outside the project
+        ("lead", "Bash", {"command": "git commit -qam 'x'"}, P, "deny"),
+        ("lead", "Bash", {"command": "git add a.tex && git commit -q -F - <<'EOF'\nFix: x > 0; then git push\nEOF\ngit status"}, P, "allow"),
+        ("lead", "Bash", {"command": "python3 - <<'EOF'\nopen('a','w').write('x > y')\nEOF"}, P, "allow"),
+        ("lead", "Bash", {"command": "git commit -m \"mention rm main.tex; and > main.tex\" a.tex"}, P, "allow"),
+        ("latex-editor", "Bash", {"command": "f=sec/01.tex; sed -i '3d' $f"}, P, "allow"),
+        ("latex-editor", "Bash", {"command": "f=NOTES.md; sed -i '3d' $f"}, P, "deny"),
+        ("referee", "Bash", {"command": "sed -i '3d' $UNKNOWN_VAR/main.tex"}, P, "deny"),
+        ("referee", "Write", {"file_path": "/tmp/claude-1/scratchpad/r.referee.md"}, P, "allow"),
+        ("factchecker", "Bash", {"command": "S=/tmp/sp/build; mkdir -p $S && git show HEAD:main.tex > $S/main.tex"}, P, "allow"),
+        ("factchecker", "Bash", {"command": "git check-ignore -v scratch/x"}, P, "allow"),
+        ("lead", "Bash", {"command": "rm /tmp/sp/old.txt"}, P, "allow"),
+        ("lead", "Edit", {"file_path": P + "/.claude/agents/prover.md"}, P, "allow"),
+        ("latex-editor", "Bash", {"command": "f=sec/01.tex; sed -i -e '357d' -e '3a\\x' $f"}, P, "allow"),
+        ("latex-editor", "Bash", {"command": "sed -i -e '357d' NOTES.md"}, P, "deny"),
+        ("code-reviewer", "Bash", {"command": "ln -s /proj/Code/results /tmp/sp/old/results"}, P, "allow"),
+        ("lead", "Bash", {"command": "rm main.aux main.log main.synctex.gz"}, P, "allow"),
+        ("lead", "Bash", {"command": "timeout 120 git -C ../Code fetch"}, P, "allow"),
+        ("referee", "Bash", {"command": "git fetch"}, P, "deny"),
+    ]
+    if SETUP_ALIAS:
+        a = SETUP_ALIAS
+        cases += [
+            ("lead", "Bash", {"command": "git %s add -f .claude/agents/new.md && git %s commit -m x" % (a, a)}, P, "allow"),
+            ("lead", "Bash", {"command": "git %s add -f .claude" % a}, P, "deny"),
+            ("lead", "Bash", {"command": "git %s commit -am x" % a}, P, "deny"),
+            ("lead", "Bash", {"command": "git %s push" % a}, P, "ask"),
+            ("hr", "Bash", {"command": "git %s commit -m x" % a}, P, "deny"),
+            ("lead", "Bash", {"command": "git %s ls-files --others -- .claude" % a}, P, "allow"),
+        ]
+    failed = 0
+    for agent, tool, ti, cwd, want in cases:
+        got = check(agent, tool, ti, cwd)
+        got = got[0] if got else "allow"
+        if got != want:
+            failed += 1
+            print("FAIL %-15s %-6s %-60s want %s, got %s" % (agent, tool, json.dumps(ti)[:60], want, got))
+    print("%d of %d cases passed" % (len(cases) - failed, len(cases)))
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    self_test() if sys.argv[1:] == ["--self-test"] else main()
+```
+
+### 4.10 `Paper/.claude/review-rules.md`
 
 ```markdown
 # Review rules shared by referee, factchecker and code-reviewer
@@ -345,7 +866,7 @@ This file is not an agent. Each of the three reviewing agents reads it before wr
 - Every report ends with a section "Files read", placed after the verdict (and, for the factchecker, after the list of UNVERIFIED items). It lists every file you read, with its path (and page or line ranges where relevant), including any file you opened beyond the sources in the brief, which you mark as such, and every URL you consulted.
 ```
 
-### 4.10 `Paper/.claude/agents/lead.md`
+### 4.11 `Paper/.claude/agents/lead.md`
 
 ```markdown
 ---
@@ -390,7 +911,7 @@ tools: Agent, Read, Grep, Glob, Edit, Write, Bash
 - My overrides: "skip check" skips the gate; "full check" adds all extended checks and a second, independent referee.
 ```
 
-### 4.11 `Paper/.claude/agents/prover.md`
+### 4.12 `Paper/.claude/agents/prover.md`
 
 ```markdown
 ---
@@ -434,7 +955,7 @@ model: opus
 - Do not check your own work for the gate; the referee does that.
 ```
 
-### 4.12 `Paper/.claude/agents/latex-editor.md`
+### 4.13 `Paper/.claude/agents/latex-editor.md`
 
 ```markdown
 ---
@@ -454,7 +975,7 @@ model: sonnet
 - Never commit or push; the lead commits.
 ```
 
-### 4.13 `Paper/.claude/agents/referee.md`
+### 4.14 `Paper/.claude/agents/referee.md`
 
 ```markdown
 ---
@@ -486,7 +1007,7 @@ model: opus
 - Your IDs are `REF<round>-<n>`, for example REF2-3.
 ```
 
-### 4.14 `Paper/.claude/agents/factchecker.md`
+### 4.15 `Paper/.claude/agents/factchecker.md`
 
 ```markdown
 ---
@@ -532,7 +1053,7 @@ model: opus
 - Your IDs are `FC<round>-<n>`, for example FC1-2.
 ```
 
-### 4.15 `Paper/.claude/agents/lit-scout.md`
+### 4.16 `Paper/.claude/agents/lit-scout.md`
 
 ```markdown
 ---
@@ -550,7 +1071,7 @@ model: sonnet
 - Conclude whether the question is answered, partly answered or open, with your confidence and the closest prior work.
 ```
 
-### 4.16 `Paper/.claude/agents/numerics.md`
+### 4.17 `Paper/.claude/agents/numerics.md`
 
 ```markdown
 ---
@@ -602,7 +1123,7 @@ model: inherit
 - Never edit `COORDINATION.md`, `CLAUDE.md`, `NOTES.md`, `TODO.md` or the settings in this folder.
 ```
 
-### 4.17 `Paper/.claude/agents/code-reviewer.md`
+### 4.18 `Paper/.claude/agents/code-reviewer.md`
 
 ```markdown
 ---
@@ -676,7 +1197,7 @@ Write `../Code/reviews/<YYYY-MM-DD>-<topic>.md`, `<topic>` a short kebab-case na
 Number items within a round from 1, most severe first. If you find nothing, say so under "Items". Your final message is the report's path and the verdict.
 ```
 
-### 4.18 `Paper/.claude/agents/hr.md`
+### 4.19 `Paper/.claude/agents/hr.md`
 
 ```markdown
 ---
@@ -698,7 +1219,7 @@ model: sonnet
 - Reply with the file path and a one-line summary of the agent.
 ```
 
-### 4.19 `Code/.gitignore`
+### 4.20 `Code/.gitignore`
 
 ```gitignore
 # Simulation outputs: never committed; the registry names the files the paper uses
@@ -725,7 +1246,7 @@ __pycache__/
 *.tmp
 ```
 
-### 4.20 `Code/.claude/settings.json`
+### 4.21 `Code/.claude/settings.json`
 
 ```json
 {
@@ -735,7 +1256,7 @@ __pycache__/
 }
 ```
 
-### 4.21 `Code/CLAUDE.md`
+### 4.22 `Code/CLAUDE.md`
 
 ```markdown
 # Simulation code for "{{TITLE}}"
@@ -785,7 +1306,7 @@ Files in `results/` are never overwritten or deleted. A rerun adds a new timesta
 - Never push without {{OWNER}}'s explicit OK.
 ```
 
-### 4.22 `Code/NOTES.md`
+### 4.23 `Code/NOTES.md`
 
 ```markdown
 # Code notes
@@ -813,7 +1334,8 @@ None yet.
 1. **Code:** `git -C {{ROOT}}/Code add .gitignore CLAUDE.md NOTES.md .claude/settings.json R/.gitkeep simulations/.gitkeep tests/.gitkeep reviews/.gitkeep` (use `src/.gitkeep` for Python), then commit with message "Initialise simulation project" and a body listing the files and the results gate. Then, if requested, create the GitHub repository (section 3, step 3).
 2. **Paper:** `git -C {{ROOT}}/Paper add .gitignore review_colours.tex Figures/.gitkeep`, plus `{{MAIN}}.tex` and `References.bib` if this skill created them; commit "Initialise paper: colour macros and gitignore" with a body. Check with `git -C {{ROOT}}/Paper status --short --ignored` that `CLAUDE.md`, `NOTES.md`, `TODO.md`, `COORDINATION.md`, `.claude/` and `scratch/` are ignored, not staged.
 3. Compile once in `Paper/` (Build section of `CLAUDE.md`) and report the exit code.
-4. Ask whether to push now: Overleaf (`git -C {{ROOT}}/Paper push -u origin main`, with `timeout 120`; on an Overleaf clone the branch may be `master`, check `git branch`) and GitHub (`git -C {{ROOT}}/Code push -u origin main`). Push only on an explicit yes.
+4. Check the guard: `python3 -m json.tool {{ROOT}}/Paper/.claude/settings.json > /dev/null` (the settings must be valid JSON, or Claude Code ignores them, hook included) and `python3 {{ROOT}}/Paper/.claude/hooks/guard.py --self-test` (every case must pass). Then feed it one call by hand, as Claude Code will: `echo '{"tool_name":"Bash","tool_input":{"command":"git commit -qam x"},"cwd":"{{ROOT}}/Paper"}' | CLAUDE_PROJECT_DIR={{ROOT}}/Paper python3 {{ROOT}}/Paper/.claude/hooks/guard.py` must print a `"deny"` decision.
+5. Ask whether to push now: Overleaf (`git -C {{ROOT}}/Paper push -u origin main`, with `timeout 120`; on an Overleaf clone the branch may be `master`, check `git branch`) and GitHub (`git -C {{ROOT}}/Code push -u origin main`). Push only on an explicit yes.
 
 ## 6. Report
 
@@ -824,4 +1346,5 @@ Finish with:
 - the remotes (`git remote -v` in both repositories) and whether anything was pushed;
 - how to start: open a Claude Code session in `{{ROOT}}/Paper`; the lead runs as the main agent and reads `NOTES.md`, `TODO.md` and `COORDINATION.md` first. The first task in `TODO.md` is for numerics: building the simulation helpers.
 - whether `/expand` and `/expansions` are installed (section 3, step 4);
+- the guard checks from section 5, step 4, and a note that the guard enforces the rules in the "Enforced rules" section of `CLAUDE.md`: an agent whose call is refused reports it, and {{OWNER}} adjusts `.claude/hooks/guard.py` by hand if a rule turns out too strict;
 - a reminder that `CLAUDE.md`, `NOTES.md`, `TODO.md`, `COORDINATION.md` and `.claude/` are local only and not versioned anywhere; if they should be, a separate local repository can be added later.

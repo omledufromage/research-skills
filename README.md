@@ -82,6 +82,14 @@ Hiding and showing change a single preamble line and never touch a proof. Hidden
 - **`Code/`:** the simulation code, in its own git repository on GitHub, worked on by `numerics`. Numbers, tables and figures reach the paper only through a results gate: committed code, passing tests, code review, and a rerun that reproduces the stored result.
 - **Notes and colour macros:** `NOTES.md`, `TODO.md` and `COORDINATION.md` for handing over between sessions, and LaTeX colour macros that mark changes awaiting your review.
 
+- **A guard:** a Python hook that Claude Code runs before every command and file edit by the lead and every agent. It enforces the team's rules instead of only stating them:
+  - each agent writes only its own files; for example, the referee and factchecker write only their reports;
+  - only the owner of a repository commits to it, and never with `commit -a`;
+  - nothing in the project is deleted;
+  - every push asks you first.
+
+  It includes a self-test, and agents whose calls are refused report the refusal instead of finding another way round. It reads command text, so a program that writes files itself, such as an R script, is still covered only by the agents' instructions.
+
 The agent instructions and notes stay on your machine: they are git-ignored, so they never reach Overleaf. The skill never overwrites or deletes a file, and never pushes without asking. The team does not write proof expansions itself; it uses `/expand` and `/expansions`, so install those too.
 
 ## Installation
