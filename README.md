@@ -1,14 +1,42 @@
 # Research skills for Claude
 
-Claude skills for writing mathematical research papers in LaTeX: two for working through proofs, and one that sets up a new research project with a team of Claude Code agents.
+Claude skills for writing mathematical research papers in LaTeX: one that sets up a new research project with a team of Claude Code agents, and two for working through proofs.
 
 | Skill | Usage | What it does |
 |---|---|---|
+| [`init-research-team`](skills/init-research-team/SKILL.md) | `/init-research-team` (Claude Code only) | Sets up a new project as a `Paper/` folder (LaTeX, synced with Overleaf) and a `Code/` folder (simulations, on GitHub), with a team of agents and the checks that work must pass before it reaches the paper. |
 | [`expand`](skills/expand/SKILL.md) | `/expand [quick\|standard\|full] <target>` | Adds indented dark-orange blocks that fill in unclear steps and omitted calculations in a proof. The target can be a result name (e.g. `Lemma D.2`), a line reference (`@paper.tex#L120-145`) or the current editor selection. |
 | [`expansions`](skills/expansions/SKILL.md) | `/expansions hide\|show\|strip [target]` | Hides, shows or removes the expansion blocks that `/expand` added, for the whole document or for one result or selection. |
-| [`init-research-team`](skills/init-research-team/SKILL.md) | `/init-research-team` (Claude Code only) | Sets up a new project as a `Paper/` folder (LaTeX, synced with Overleaf) and a `Code/` folder (simulations, on GitHub), with a team of agents and the checks that work must pass before it reaches the paper. |
 
-## Example
+## Setting up a research project
+
+`init-research-team` runs in Claude Code (the desktop Code tab, the CLI or VS Code), because it writes configuration files and runs `git`. It first asks for the project folder, the paper's title and authors, a short summary, the simulation language (R by default, or Python), and the Overleaf and GitHub URLs. It shows the values back before writing anything. It then creates:
+
+- **`Paper/`:** the manuscript, as a git clone of the Overleaf project. Its Claude Code session runs with `lead` as the main agent, which coordinates the others:
+  - `prover` writes and repairs statements and proofs;
+  - `latex-editor` handles wording, structure and the bibliography;
+  - `referee` and `factchecker` check every deliverable before it reaches you;
+  - `lit-scout` searches the literature;
+  - `numerics` writes and runs the simulations;
+  - `code-reviewer` reviews simulation code before its results go into the paper;
+  - `hr` adds or changes agents when you ask.
+- **`Code/`:** the simulation code, in its own git repository on GitHub, worked on by `numerics`. Numbers, tables and figures reach the paper only through a results gate: committed code, passing tests, code review, and a rerun that reproduces the stored result.
+- **Notes and colour macros:** `NOTES.md`, `TODO.md` and `COORDINATION.md` for handing over between sessions, and LaTeX colour macros that mark changes awaiting your review.
+- **A guard:** a Python hook that Claude Code runs before every command and file edit by the lead and every agent. It enforces the team's rules instead of only stating them:
+  - each agent writes only its own files; for example, the referee and factchecker write only their reports;
+  - only the owner of a repository commits to it, and never with `commit -a`;
+  - nothing in the project is deleted;
+  - every push asks you first.
+
+  It includes a self-test, and agents whose calls are refused report the refusal instead of finding another way round. It reads command text, so a program that writes files itself, such as an R script, is still covered only by the agents' instructions.
+
+The agent instructions and notes stay on your machine: they are git-ignored, so they never reach Overleaf. The skill never overwrites or deletes a file, and never pushes without asking. The team does not write proof expansions itself; it uses `/expand` and `/expansions` (below), so install those too.
+
+## Working through proofs
+
+`/expand` fills in the steps a proof leaves out, and `/expansions` hides, shows or removes what it added. They work in any LaTeX document, in Claude Code or in the desktop app.
+
+### Example
 
 Say `paper.tex` contains this lemma. Its proof chooses $\delta = \varepsilon/L$ but never shows why that choice works: it skips applying the Lipschitz bound to each interval and summing.
 
@@ -67,37 +95,12 @@ If a step does not follow, the block says so (`Gap: … does not follow because 
 
 Hiding and showing change a single preamble line and never touch a proof. Hidden blocks are still in the `.tex` source, so use `strip` before you send the source to arXiv, a journal or co-authors.
 
-## Setting up a research project
-
-`init-research-team` runs in Claude Code (the desktop Code tab, the CLI or VS Code), because it writes configuration files and runs `git`. It first asks for the project folder, the paper's title and authors, a short summary, the simulation language (R by default, or Python), and the Overleaf and GitHub URLs. It shows the values back before writing anything. It then creates:
-
-- **`Paper/`:** the manuscript, as a git clone of the Overleaf project. Its Claude Code session runs with `lead` as the main agent, which coordinates the others:
-  - `prover` writes and repairs statements and proofs;
-  - `latex-editor` handles wording, structure and the bibliography;
-  - `referee` and `factchecker` check every deliverable before it reaches you;
-  - `lit-scout` searches the literature;
-  - `numerics` writes and runs the simulations;
-  - `code-reviewer` reviews simulation code before its results go into the paper;
-  - `hr` adds or changes agents when you ask.
-- **`Code/`:** the simulation code, in its own git repository on GitHub, worked on by `numerics`. Numbers, tables and figures reach the paper only through a results gate: committed code, passing tests, code review, and a rerun that reproduces the stored result.
-- **Notes and colour macros:** `NOTES.md`, `TODO.md` and `COORDINATION.md` for handing over between sessions, and LaTeX colour macros that mark changes awaiting your review.
-
-- **A guard:** a Python hook that Claude Code runs before every command and file edit by the lead and every agent. It enforces the team's rules instead of only stating them:
-  - each agent writes only its own files; for example, the referee and factchecker write only their reports;
-  - only the owner of a repository commits to it, and never with `commit -a`;
-  - nothing in the project is deleted;
-  - every push asks you first.
-
-  It includes a self-test, and agents whose calls are refused report the refusal instead of finding another way round. It reads command text, so a program that writes files itself, such as an R script, is still covered only by the agents' instructions.
-
-The agent instructions and notes stay on your machine: they are git-ignored, so they never reach Overleaf. The skill never overwrites or deletes a file, and never pushes without asking. The team does not write proof expansions itself; it uses `/expand` and `/expansions`, so install those too.
-
 ## Installation
 
 **Claude Code:** copy (or symlink) the skill folders into your skills directory:
 
 ```bash
-cp -r skills/expand skills/expansions skills/init-research-team ~/.claude/skills/
+cp -r skills/init-research-team skills/expand skills/expansions ~/.claude/skills/
 ```
 
-**Claude.ai / desktop app:** zip each folder (`expand/`, `expansions/`, `init-research-team/`) and upload it under *Settings → Capabilities → Skills*. `init-research-team` only works when run from Claude Code.
+**Claude.ai / desktop app:** zip each folder (`init-research-team/`, `expand/`, `expansions/`) and upload it under *Settings → Capabilities → Skills*. `init-research-team` only works when run from Claude Code.
