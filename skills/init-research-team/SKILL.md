@@ -5,7 +5,7 @@ description: "Use in Claude Code when starting a new research project, to scaffo
 
 # Initialise a research team in a new project
 
-This skill sets up a new project with the same structure as Marcio's WP0 project: a `Paper/` folder (the LaTeX manuscript, synced with Overleaf, where the Claude Code session runs with `lead` as the main agent) and a `Code/` folder next to it (simulation code, its own git repository on GitHub, worked on by the `numerics` agent). It writes every configuration file from the templates below. The team is lead, prover, latex-editor, referee, factchecker, lit-scout, numerics, code-reviewer and hr; proof expansions go through the `/expand` and `/expansions` skills, not through an agent. A guard hook (4.9) enforces the ownership and git rules, so they do not rest on the agents' instructions alone.
+This skill sets up a new research project as two folders: a `Paper/` folder (the LaTeX manuscript, synced with Overleaf, where the Claude Code session runs with `lead` as the main agent) and a `Code/` folder next to it (simulation code, its own git repository on GitHub, worked on by the `numerics` agent). It writes every configuration file from the templates below. The team is lead, prover, latex-editor, referee, factchecker, lit-scout, numerics, code-reviewer and hr; proof expansions go through the `/expand` and `/expansions` skills, not through an agent. A guard hook (4.9) enforces the ownership and git rules, so they do not rest on the agents' instructions alone.
 
 Run it in **Claude Code** (desktop Code tab, CLI or VS Code), not in Cowork: it must write `.claude/` and run `git`.
 
@@ -17,8 +17,8 @@ Ask for these in one go (use AskUserQuestion where it helps), and show the fille
 |---|---|---|
 | `{{ROOT}}` | Absolute path of the project folder that will hold `Paper/` and `Code/` | none: ask |
 | `{{TITLE}}` | Working title of the paper | none: ask |
-| `{{AUTHORS}}` | Authors and affiliations | "Marcio Reverbel (KU Leuven)" |
-| `{{OWNER}}` | The person the lead works with | Marcio |
+| `{{AUTHORS}}` | Authors and affiliations | none: ask |
+| `{{OWNER}}` | First name of the person the lead works with (used in the agents' instructions) | none: ask |
 | `{{SUMMARY}}` | One paragraph: the model, what is to be proved, what the simulations compare | ask; "to be written" is acceptable |
 | `{{MAIN}}` | Stem of the main LaTeX file | `main` |
 | `{{P}}` | Short prefix for simulation outputs in `Paper/Figures/` (letters only, lower case) | initials of the title, e.g. `ls` |
@@ -202,7 +202,7 @@ Also create an empty `Paper/References.bib` if none exists.
 
 A guard, `.claude/hooks/guard.py`, runs before every Bash, Edit and Write call by the lead and every agent, and refuses calls that break these rules; {{OWNER}} changes it and the settings files by hand only (then `python3 .claude/hooks/guard.py --self-test`). If the guard refuses a call, do not try another way to do the same thing: report the refusal to the lead, who reports it to {{OWNER}}.
 
-- Who writes where, inside the project (anything outside it, such as a session scratchpad, and `scratch/` are free): the lead writes `NOTES.md`, `TODO.md`, `COORDINATION.md`, `CLAUDE.md`, `.gitignore`, the team files in `.claude/` and `.tex` files; prover the `.tex` files; latex-editor the `.tex` and `.bib` files; referee and factchecker only their `*.referee.md` / `*.factcheck.md` reports; code-reviewer only its report in `../Code/reviews/`; numerics `../Code`, except `results/` (written by the scripts) and never `Figures/{{P}}_*` by hand; hr the agent files and `review-rules.md`; any other agent only `scratch/`.
+- Who writes where, inside the project (anything outside it, such as a session scratchpad, and `scratch/` are free): the lead writes `NOTES.md`, `TODO.md`, `COORDINATION.md`, `CLAUDE.md`, `.gitignore`, the team files in `.claude/`, and expansion blocks in `.tex` files (Edit tool only; any other change to the text is refused); prover the `.tex` files; latex-editor the `.tex` and `.bib` files; referee and factchecker only their `*.referee.md` / `*.factcheck.md` reports; code-reviewer only its report in `../Code/reviews/`; numerics `../Code`, except `results/` (written by the scripts) and never `Figures/{{P}}_*` by hand; hr the agent files and `review-rules.md`; any other agent only `scratch/`.
 - Git: only the lead commits here, only numerics commits in `../Code`; other agents use read-only git. No `commit -a` in any spelling, no `add -A`/`-u`/`.`/`-f`. Every push asks {{OWNER}}; force pushes are refused.
 - Nothing in the project is deleted, outside `scratch/` and LaTeX build files: no `rm`, `git rm`, `git clean`, `git checkout --`, `git restore`, `git reset --hard`, `git stash`, `git rebase`, `find -delete`, and no moving files out of the project.
 - Write paths out: the guard refuses a write whose target it cannot resolve (an unknown `$variable`).
@@ -341,7 +341,7 @@ The deny and ask rules are a second line of defence: they hold even if the guard
 
 ### 4.9 `Paper/.claude/hooks/guard.py`
 
-The guard: a PreToolUse hook (registered in 4.8) that refuses the tool calls breaking the team's ownership and git rules, for the lead and every agent, instead of relying on the agents' instructions alone. It needs `python3`. Write it exactly as below, then make it executable (`chmod +x`). If the project has a separate repository for the team setup used through a git alias (as in WP0's `git setup`), set `SETUP_ALIAS` to the alias name; the lead may then run `git <alias> add -f <file>` and commit there.
+The guard: a PreToolUse hook (registered in 4.8) that refuses the tool calls breaking the team's ownership and git rules, for the lead and every agent, instead of relying on the agents' instructions alone. It needs `python3`. Write it exactly as below, then make it executable (`chmod +x`). If the project has a separate repository for the team setup used through a git alias (for example `git setup`, defined as `git config alias.setup '!git --git-dir="$(git rev-parse --show-toplevel)/.git-local" --work-tree="$(git rev-parse --show-toplevel)"'`), set `SETUP_ALIAS` to the alias name; the lead may then run `git <alias> add -f <file>` and commit there.
 
 ```python
 #!/usr/bin/env python3
@@ -363,7 +363,9 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sys
+import tempfile
 
 # Simulation outputs in Paper/Figures/ start with this prefix; only the scripts in ../Code write them.
 FIG_PREFIX = "{{P}}"
@@ -383,6 +385,10 @@ BUILD_FILES = (".aux", ".log", ".bbl", ".blg", ".bcf", ".fls", ".fdb_latexmk", "
 WRAPPERS = {"sudo", "nohup", "nice", "time", "command", "builtin", "exec", "stdbuf"}
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+# Expansion blocks and the preamble region of the /expand and /expansions skills (same patterns as those skills).
+EXPANSION_BLOCK = re.compile(r"^[ \t]*\\begin\{(?:hidden)?expansion\}(?:\[[^\]]*\])?[ \t]*\n.*?^[ \t]*\\end\{(?:hidden)?expansion\}[ \t]*\n", re.S | re.M)
+EXPANSION_REGION = re.compile(r"^% >>> expansion blocks.*?^% <<< end expansion blocks[ \t]*\n", re.S | re.M)
+EXPANSION_PACKAGES = re.compile(r"^[ \t]*\\usepackage\{(?:xcolor|amsmath|xparse)\}[ \t]*\n", re.M)
 ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.S)
 
 
@@ -427,12 +433,14 @@ def write_refusal(agent, p):
     claude = os.path.join(PAPER, ".claude")
     in_paper = under(p, PAPER) and not under(p, claude)
     team = any(under(p, os.path.join(root, ".claude", d)) for root in (PAPER, CODE) for d in ("agents", "retired-agents"))
-    tex = in_paper and name.endswith(".tex") and not is_figure(p)
+    tex = is_paper_tex(p)
     if agent == "lead":
-        ok = tex or team or p == os.path.join(claude, "review-rules.md") or (
+        # .tex files: only through Edit/Write calls that change nothing but expansion blocks (see lead_tex_refusal)
+        ok = team or p == os.path.join(claude, "review-rules.md") or (
             os.path.dirname(p) == PAPER and name in ("NOTES.md", "TODO.md", "COORDINATION.md", "CLAUDE.md", ".gitignore"))
         why = ("the lead edits only NOTES.md, TODO.md, COORDINATION.md, CLAUDE.md, the team files in .claude/ "
-               "(when {{OWNER}} asks) and expansion blocks in .tex files")
+               "(when {{OWNER}} asks), and expansion blocks in .tex files with the Edit tool; other .tex changes go to "
+               "latex-editor or the prover")
     elif agent == "prover":
         ok, why = tex, "the prover edits only the .tex files of the paper"
     elif agent == "latex-editor":
@@ -456,6 +464,41 @@ def write_refusal(agent, p):
     else:
         ok, why = False, "agent '%s' may write only in scratch/" % agent
     return None if ok else why
+
+
+def is_paper_tex(p):
+    claude = os.path.join(PAPER, ".claude")
+    return under(p, PAPER) and not under(p, claude) and p.endswith(".tex") and not is_figure(p)
+
+
+def without_expansions(text):
+    text = EXPANSION_REGION.sub("", text)
+    text = EXPANSION_BLOCK.sub("", text)
+    return EXPANSION_PACKAGES.sub("", text)
+
+
+def lead_tex_refusal(tool, tool_input, p):
+    """The lead may change a .tex file only in its expansion blocks (/expand, /expansions):
+    the file with every block, the preamble region and the package lines removed must stay the same."""
+    try:
+        with open(p, encoding="utf-8", errors="surrogateescape") as f:
+            before = f.read()
+    except FileNotFoundError:
+        before = ""
+    after = before
+    if tool == "Write":
+        after = tool_input.get("content", "")
+    else:
+        edits = tool_input.get("edits") if tool == "MultiEdit" else [tool_input]
+        for e in edits or []:
+            old, new = e.get("old_string", ""), e.get("new_string", "")
+            if old not in after:
+                return None  # the edit will fail anyway; Claude Code reports that
+            after = after.replace(old, new) if e.get("replace_all") else after.replace(old, new, 1)
+    if without_expansions(before) == without_expansions(after):
+        return None
+    return ("the lead changes .tex files only in expansion blocks (/expand, /expansions); "
+            "this edit changes the text outside them. Delegate it to latex-editor, or to the prover for mathematics")
 
 
 def split_args(tokens):
@@ -681,8 +724,11 @@ def check(agent, tool, tool_input, cwd):
     if tool == "Bash":
         return bash_refusal(agent, tool_input.get("command", ""), cwd)
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
-        path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
-        why = write_refusal(agent, norm(path, cwd))
+        path = norm(tool_input.get("file_path") or tool_input.get("notebook_path") or "", cwd)
+        if agent == "lead" and tool != "NotebookEdit" and is_paper_tex(path):
+            why = lead_tex_refusal(tool, tool_input, path)
+            return ("deny", why) if why else None
+        why = write_refusal(agent, path)
         return ("deny", why) if why else None
     return None
 
@@ -708,13 +754,26 @@ def main():
 def self_test():
     global PAPER, CODE
     global PROJECT
-    PROJECT, PAPER, CODE = "/proj", "/proj/Paper", "/proj/Code"
+    PROJECT = os.path.realpath(tempfile.mkdtemp(prefix="guard-test-"))
+    PAPER, CODE = os.path.join(PROJECT, "Paper"), os.path.join(PROJECT, "Code")
     P, C = PAPER, CODE
+    os.makedirs(os.path.join(P, "sec"))
+    proof = "\\begin{proof}\nStep one.\nStep two.\n\\end{proof}\n"
+    block = "\\begin{expansion}[lem:a]\nWhy step two follows.\n\\end{expansion}\n"
+    with open(os.path.join(P, "sec", "02_model.tex"), "w") as f:
+        f.write("\\documentclass{article}\n\\begin{document}\n" + proof + "\\end{document}\n")
     fig = "Figures/" + FIG_PREFIX + "_x.pdf"
     cases = [
         # (agent, tool, input, cwd, expected)
         ("lead", "Edit", {"file_path": P + "/NOTES.md"}, P, "allow"),
-        ("lead", "Edit", {"file_path": P + "/sec/02_model.tex"}, P, "allow"),
+        ("lead", "Edit", {"file_path": P + "/sec/02_model.tex", "old_string": "Step one.\n", "new_string": "Step one.\n" + block}, P, "allow"),
+        ("lead", "Edit", {"file_path": P + "/sec/02_model.tex", "old_string": "Step one.", "new_string": "Step 1."}, P, "deny"),
+        ("lead", "MultiEdit", {"file_path": P + "/sec/02_model.tex", "edits": [
+            {"old_string": "\\begin{document}\n", "new_string": "\\begin{document}\n"},
+            {"old_string": "Step one.\n", "new_string": "Step one.\n" + block}]}, P, "allow"),
+        ("lead", "Write", {"file_path": P + "/sec/02_model.tex", "content": "rewritten"}, P, "deny"),
+        ("lead", "Bash", {"command": "sed -i 's/one/1/' sec/02_model.tex"}, P, "deny"),
+        ("lead", "Write", {"file_path": P + "/sec/new.tex", "content": "x"}, P, "deny"),
         ("lead", "Edit", {"file_path": C + "/R/helpers.R"}, P, "deny"),
         ("lead", "Write", {"file_path": P + "/.claude/settings.json"}, P, "deny"),
         ("lead", "Write", {"file_path": P + "/.claude/hooks/guard.py"}, P, "deny"),
@@ -748,7 +807,7 @@ def self_test():
         ("lead", "Bash", {"command": "git add ."}, P, "deny"),
         ("lead", "Bash", {"command": "git add -f CLAUDE.md"}, P, "deny"),
         ("lead", "Bash", {"command": "timeout 120 git push"}, P, "ask"),
-        ("lead", "Bash", {"command": "git -C /proj/Code push origin main"}, P, "ask"),
+        ("lead", "Bash", {"command": "git -C " + C + " push origin main"}, P, "ask"),
         ("lead", "Bash", {"command": "cd ../Code && git push"}, P, "ask"),
         ("lead", "Bash", {"command": "git push --force"}, P, "deny"),
         ("lead", "Bash", {"command": "git -C ../Code commit -m x"}, P, "deny"),
@@ -800,7 +859,7 @@ def self_test():
         ("lead", "Edit", {"file_path": P + "/.claude/agents/prover.md"}, P, "allow"),
         ("latex-editor", "Bash", {"command": "f=sec/01.tex; sed -i -e '357d' -e '3a\\x' $f"}, P, "allow"),
         ("latex-editor", "Bash", {"command": "sed -i -e '357d' NOTES.md"}, P, "deny"),
-        ("code-reviewer", "Bash", {"command": "ln -s /proj/Code/results /tmp/sp/old/results"}, P, "allow"),
+        ("code-reviewer", "Bash", {"command": "ln -s " + C + "/results /tmp/sp/old/results"}, P, "allow"),
         ("lead", "Bash", {"command": "rm main.aux main.log main.synctex.gz"}, P, "allow"),
         ("lead", "Bash", {"command": "timeout 120 git -C ../Code fetch"}, P, "allow"),
         ("referee", "Bash", {"command": "git fetch"}, P, "deny"),
@@ -822,6 +881,7 @@ def self_test():
         if got != want:
             failed += 1
             print("FAIL %-15s %-6s %-60s want %s, got %s" % (agent, tool, json.dumps(ti)[:60], want, got))
+    shutil.rmtree(PROJECT, ignore_errors=True)
     print("%d of %d cases passed" % (len(cases) - failed, len(cases)))
     sys.exit(1 if failed else 0)
 
@@ -883,7 +943,7 @@ tools: Agent, Read, Grep, Glob, Edit, Write, Bash
   - read `NOTES.md`, `COORDINATION.md` and `TODO.md`. Report where the plan stands and which item is next.
 - Write commit messages with a body that says what changed and why. Commits made on Overleaf arrive as "Update on Overleaf." without explanation; inspect their diffs.
 - Keep `TODO.md` current: add open items as they arise, remove them once done. `TODO.md` is the only task list. `NOTES.md` holds the state, the lemma ledger and the decisions.
-- Do yourself: discuss the mathematics with me, plan, read and search files, check what workers return, and keep `NOTES.md`, `TODO.md` and `COORDINATION.md` up to date. Edit no other file, with one exception: when I run `/expand` or `/expansions`, you splice, hide, show or remove `expansion` blocks and the `% >>> expansion blocks` preamble region as those skills say, and nothing else in the `.tex` files.
+- Do yourself: discuss the mathematics with me, plan, read and search files, check what workers return, and keep `NOTES.md`, `TODO.md` and `COORDINATION.md` up to date. Edit no other file, with one exception: when I run `/expand` or `/expansions`, you splice, hide, show or remove `expansion` blocks and the `% >>> expansion blocks` preamble region as those skills say, with the Edit tool, and change nothing else in the `.tex` files. Every other change to a `.tex` or `.bib` file, however small (a typo, a colour mark, wording I dictate), goes to latex-editor, or to the prover for mathematics. The guard refuses `.tex` edits by you outside expansion blocks, and any `.tex` edit through `sed`, `cp` or a redirection.
 - Use Bash only for git (`status`, `diff`, `log`, `add`, `commit`) in this folder and for compiling the manuscript; in `../Code`, only `git -C ../Code status`, `log` and `diff`, for reading. Commit after a piece of work has passed its checks, with explicit paths and a descriptive message. Never push without my explicit OK.
 - `CLAUDE.md`, `NOTES.md`, `TODO.md`, `COORDINATION.md` and `.claude/` are git-ignored here and are never committed (they would reach Overleaf).
 - Results that appear in the paper come only from `../Code`, produced by numerics through its results gate (`../Code/CLAUDE.md`). Computations, numbers, tables and figures go to numerics as tasks in `TODO.md`. Nothing from `scratch/` is ever cited in the paper.
@@ -891,7 +951,7 @@ tools: Agent, Read, Grep, Glob, Edit, Write, Bash
 - Before results go to the paper, dispatch code-reviewer on numerics' change (the commit range numerics names); numerics runs the paper run only after code-reviewer reports no BLOCKER or MAJOR item.
 - Delegate: anything that creates or changes a deliverable, code or data; drafting or repairing statements and proofs (to the prover); literature searches; computations; proof checks; LaTeX edits. Don't delegate a lookup you can do by reading one file.
 - Expansions: I run `/expand` (and `/expansions`) myself in this session; follow the skill, which writes the blocks with a fresh subagent so that they never come from the proof's author. Never let the prover write expansion blocks. Gaps the expansion reports become items in `TODO.md` and go to the prover. Do not start an expansion unasked.
-- Choose the specialist whose description fits. For a one-off task that fits nobody, use general-purpose. If the same kind of task keeps coming up, propose a new specialist to me, and ask hr to create it only after I agree.
+- Choose the specialist whose description fits. For a one-off task that fits nobody, use general-purpose; it writes only in `scratch/`, so never use it to edit the paper. If the same kind of task keeps coming up, propose a new specialist to me, and ask hr to create it only after I agree.
 - Brief every worker in full, because it has no memory of our conversation: the goal, the context, file paths, constraints and the form of answer you need. Quote my instructions word for word inside the brief.
 - Run independent tasks in parallel. Never let two workers edit the same file.
 - When a result comes back, read the relevant output yourself. If it is incomplete, delegate a follow-up instead of patching it yourself.
