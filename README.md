@@ -15,7 +15,8 @@ Claude skills for writing mathematical research papers in LaTeX: one that sets u
 - **`Paper/`:** the manuscript, as a git clone of the Overleaf project. Its Claude Code session runs with `lead` as the main agent, which coordinates the others:
   - `prover` writes and repairs statements and proofs;
   - `latex-editor` handles wording, structure and the bibliography;
-  - `referee` and `factchecker` check every deliverable before it reaches you;
+  - `referee` checks every mathematical change;
+  - `factchecker` checks references, quotes, claims about the literature and numbers. It checks the paper section by section when you ask, and grey margin notes in the PDF show which parts have been factchecked;
   - `lit-scout` searches the literature;
   - `numerics` writes and runs the simulations;
   - `code-reviewer` reviews simulation code before its results go into the paper;

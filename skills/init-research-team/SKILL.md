@@ -111,6 +111,13 @@ Input it in the preamble of `{{MAIN}}.tex` (`\input{review_colours}` after the p
 \newcommand{\reworkc}[1]{{\color{red}#1}}
 \newenvironment{reworkchange}{\color{red}}{}
 \newcommand{\tmpnote}[1]{{\color{gray}[\textit{#1}]}}
+
+% >>> factcheck labels: grey margin notes saying which parts the factchecker has checked
+\newif\iffclabels \fclabelstrue   % \fclabelsfalse hides the notes; remove the labels for submission
+\newcommand{\fcnote}[1]{\iffclabels\leavevmode\marginpar{\raggedright\scriptsize\sffamily\color{gray}#1}\fi\ignorespaces}
+\newcommand{\fcchecked}[1]{\fcnote{factchecked\\#1}}   % checked at commit #1, no BLOCKER or MAJOR item left
+\newcommand{\fcunchecked}{\fcnote{not factchecked}}
+% <<< end factcheck labels
 ```
 
 ### 4.3 `Paper/{{MAIN}}.tex` (only if it does not exist)
@@ -197,12 +204,23 @@ Also create an empty `Paper/References.bib` if none exists.
 - Never delete a file unless {{OWNER}} has asked for that specific deletion. Make a backup or a git commit before a large edit.
 - Code uses fixed random seeds, and every figure and table is produced by a script in the project.
 - When {{OWNER}} asks a question, discuss before editing; do not edit what has not been asked to change.
+- Never read `NOTES.md` or `COORDINATION.md` whole once they have grown. Search them (Grep, or `grep -n`), or read only the lines you need (Read with `offset` and `limit`). Material below `## History (closed)` in `COORDINATION.md` is closed: open it only by search, when a question needs it.
+
+## Factcheck labels
+
+The paper carries labels saying which parts the factchecker has checked. They print as grey margin notes, for {{OWNER}} and any co-authors; `\fclabelsfalse` in `review_colours.tex` hides them, and they are removed for submission together with the colour marks and expansion blocks.
+
+- `\fcchecked{<commit>}`: factchecked at that commit, with no BLOCKER or MAJOR item left. `\fcunchecked`: not factchecked.
+- A label covers the text from where it stands to the next label in the same file. Text above the first label of a file is not factchecked; new text starts with `\fcunchecked`. Put a label at the start of a paragraph (on the same line, or on the line just before it with no blank line between): after the heading for a section or subsection; before and after a passage for a passage, the second label restoring the status around it. Never inside a display, `align`, table, figure or footnote.
+- Whoever changes text under `\fcchecked` changes the label in the same edit: to `\fcunchecked` if the whole unit changed, or, for one passage inside it, `\fcunchecked` before the passage and `\fcchecked{<same commit>}` after it. The same holds for edits that arrive from Overleaf: the lead updates the labels when it inspects them.
+- Only the lead sets `\fcchecked`, after a factcheck report with no BLOCKER or MAJOR item, with the commit that was checked. The guard lets the lead change labels in `.tex` files, and nothing else there.
+- Overview: `grep -rn '\\fc\(un\)\?checked' --include=*.tex .`. To see whether a label still holds: `git diff <commit> -- <file>`.
 
 ## Enforced rules
 
 A guard, `.claude/hooks/guard.py`, runs before every Bash, Edit and Write call by the lead and every agent, and refuses calls that break these rules; {{OWNER}} changes it and the settings files by hand only (then `python3 .claude/hooks/guard.py --self-test`). If the guard refuses a call, do not try another way to do the same thing: report the refusal to the lead, who reports it to {{OWNER}}.
 
-- Who writes where, inside the project (anything outside it, such as a session scratchpad, and `scratch/` are free): the lead writes `NOTES.md`, `TODO.md`, `COORDINATION.md`, `CLAUDE.md`, `.gitignore`, the team files in `.claude/`, and expansion blocks in `.tex` files (Edit tool only; any other change to the text is refused); prover the `.tex` files; latex-editor the `.tex` and `.bib` files; referee and factchecker only their `*.referee.md` / `*.factcheck.md` reports; code-reviewer only its report in `../Code/reviews/`; numerics `../Code`, except `results/` (written by the scripts) and never `Figures/{{P}}_*` by hand; hr the agent files and `review-rules.md`; any other agent only `scratch/`.
+- Who writes where, inside the project (anything outside it, such as a session scratchpad, and `scratch/` are free): the lead writes `NOTES.md`, `TODO.md`, `COORDINATION.md`, `CLAUDE.md`, `.gitignore`, the team files in `.claude/`, and expansion blocks and factcheck labels in `.tex` files (Edit tool only; any other change to the text is refused); prover the `.tex` files; latex-editor the `.tex` and `.bib` files; referee and factchecker only their `*.referee.md` / `*.factcheck.md` reports; code-reviewer only its report in `../Code/reviews/`; numerics `../Code`, except `results/` (written by the scripts) and never `Figures/{{P}}_*` by hand; hr the agent files and `review-rules.md`; any other agent only `scratch/`.
 - Git: only the lead commits here, only numerics commits in `../Code`; other agents use read-only git. No `commit -a` in any spelling, no `add -A`/`-u`/`.`/`-f`. Every push asks {{OWNER}}; force pushes are refused.
 - Nothing in the project is deleted, outside `scratch/` and LaTeX build files: no `rm`, `git rm`, `git clean`, `git checkout --`, `git restore`, `git reset --hard`, `git stash`, `git rebase`, `find -delete`, and no moving files out of the project.
 - Write paths out: the guard refuses a write whose target it cannot resolve (an unknown `$variable`).
@@ -256,7 +274,7 @@ Numbered items; remove an item once done. Tasks for numerics are marked [numeric
 ```markdown
 # Coordination: ownership, figures and numbers, model, simulation settings
 
-Reference file owned by the lead. It is git-ignored in `Paper/` (kept off Overleaf). The tests in `../Code` read the settings table below.
+Reference file owned by the lead. It is git-ignored in `Paper/` (kept off Overleaf). The tests in `../Code` read the settings table below. Closed material (old decisions, finished requests) goes under a final `## History (closed)` heading, which agents open only by search.
 
 ## Ownership by agent
 
@@ -389,6 +407,9 @@ VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]
 EXPANSION_BLOCK = re.compile(r"^[ \t]*\\begin\{(?:hidden)?expansion\}(?:\[[^\]]*\])?[ \t]*\n.*?^[ \t]*\\end\{(?:hidden)?expansion\}[ \t]*\n", re.S | re.M)
 EXPANSION_REGION = re.compile(r"^% >>> expansion blocks.*?^% <<< end expansion blocks[ \t]*\n", re.S | re.M)
 EXPANSION_PACKAGES = re.compile(r"^[ \t]*\\usepackage\{(?:xcolor|amsmath|xparse)\}[ \t]*\n", re.M)
+# Factcheck labels (CLAUDE.md, "Factcheck labels") and their definitions in main.tex: the lead may change them too.
+FC_LABEL = re.compile(r"\\fc(?:checked\{[^{}\n]*\}|unchecked)(?![A-Za-z])[ \t]*\n?")
+FC_REGION = re.compile(r"^% >>> factcheck labels.*?^% <<< end factcheck labels[ \t]*\n", re.S | re.M)
 ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.S)
 
 
@@ -472,14 +493,16 @@ def is_paper_tex(p):
 
 
 def without_expansions(text):
+    text = FC_REGION.sub("", text)
+    text = FC_LABEL.sub("", text)
     text = EXPANSION_REGION.sub("", text)
     text = EXPANSION_BLOCK.sub("", text)
     return EXPANSION_PACKAGES.sub("", text)
 
 
 def lead_tex_refusal(tool, tool_input, p):
-    """The lead may change a .tex file only in its expansion blocks (/expand, /expansions):
-    the file with every block, the preamble region and the package lines removed must stay the same."""
+    """The lead may change a .tex file only in its expansion blocks (/expand, /expansions) and factcheck labels:
+    the file with every block, label, preamble region and package line removed must stay the same."""
     try:
         with open(p, encoding="utf-8", errors="surrogateescape") as f:
             before = f.read()
@@ -497,7 +520,7 @@ def lead_tex_refusal(tool, tool_input, p):
             after = after.replace(old, new) if e.get("replace_all") else after.replace(old, new, 1)
     if without_expansions(before) == without_expansions(after):
         return None
-    return ("the lead changes .tex files only in expansion blocks (/expand, /expansions); "
+    return ("the lead changes .tex files only in expansion blocks (/expand, /expansions) and factcheck labels; "
             "this edit changes the text outside them. Delegate it to latex-editor, or to the prover for mathematics")
 
 
@@ -772,6 +795,9 @@ def self_test():
             {"old_string": "\\begin{document}\n", "new_string": "\\begin{document}\n"},
             {"old_string": "Step one.\n", "new_string": "Step one.\n" + block}]}, P, "allow"),
         ("lead", "Write", {"file_path": P + "/sec/02_model.tex", "content": "rewritten"}, P, "deny"),
+        ("lead", "Edit", {"file_path": P + "/sec/02_model.tex", "old_string": "\\begin{proof}\n", "new_string": "\\begin{proof}\n\\fcchecked{96b8e36}\n"}, P, "allow"),
+        ("lead", "Edit", {"file_path": P + "/sec/02_model.tex", "old_string": "Step two.", "new_string": "\\fcunchecked Step two."}, P, "allow"),
+        ("lead", "Edit", {"file_path": P + "/sec/02_model.tex", "old_string": "Step two.", "new_string": "\\fcunchecked Step 2."}, P, "deny"),
         ("lead", "Bash", {"command": "sed -i 's/one/1/' sec/02_model.tex"}, P, "deny"),
         ("lead", "Write", {"file_path": P + "/sec/new.tex", "content": "x"}, P, "deny"),
         ("lead", "Edit", {"file_path": C + "/R/helpers.R"}, P, "deny"),
@@ -940,10 +966,13 @@ tools: Agent, Read, Grep, Glob, Edit, Write, Bash
 - You work with me ({{OWNER}}) directly and coordinate the specialists in `.claude/agents/`.
 - At the start of each session, before doing anything else:
   - read the recent history with `git log --stat -15` (commit messages carry the what and why of each change), and run `git -C ../Code status -sb` and `git -C ../Code log --oneline -10`;
-  - read `NOTES.md`, `COORDINATION.md` and `TODO.md`. Report where the plan stands and which item is next.
+  - in `NOTES.md` (never read it whole once it has grown): list its headings with `grep -n '^#' NOTES.md`, then read only `## State` and `## Next steps`, with Read `offset` and `limit`;
+  - in `COORDINATION.md`, read only the part above `## History (closed)`, if it has one: ownership, figures and numbers, model and notation, simulation settings;
+  - read `TODO.md`. Report where the plan stands and which item is next.
 - Write commit messages with a body that says what changed and why. Commits made on Overleaf arrive as "Update on Overleaf." without explanation; inspect their diffs.
 - Keep `TODO.md` current: add open items as they arise, remove them once done. `TODO.md` is the only task list. `NOTES.md` holds the state, the lemma ledger and the decisions.
-- Do yourself: discuss the mathematics with me, plan, read and search files, check what workers return, and keep `NOTES.md`, `TODO.md` and `COORDINATION.md` up to date. Edit no other file, with one exception: when I run `/expand` or `/expansions`, you splice, hide, show or remove `expansion` blocks and the `% >>> expansion blocks` preamble region as those skills say, with the Edit tool, and change nothing else in the `.tex` files. Every other change to a `.tex` or `.bib` file, however small (a typo, a colour mark, wording I dictate), goes to latex-editor, or to the prover for mathematics. The guard refuses `.tex` edits by you outside expansion blocks, and any `.tex` edit through `sed`, `cp` or a redirection.
+- Before acting on something an earlier decision may cover (agent setup, notation, colours, git, simulations), search `## Decisions` in `NOTES.md` and read the entries that match.
+- Do yourself: discuss the mathematics with me, plan, read and search files, check what workers return, and keep `NOTES.md`, `TODO.md` and `COORDINATION.md` up to date. Edit no other file, with one exception: when I run `/expand` or `/expansions`, you splice, hide, show or remove `expansion` blocks and the `% >>> expansion blocks` preamble region as those skills say, with the Edit tool, and change nothing else in the `.tex` files; the same for factcheck labels (`\fcchecked`, `\fcunchecked`, CLAUDE.md "Factcheck labels"). Every other change to a `.tex` or `.bib` file, however small (a typo, a colour mark, wording I dictate), goes to latex-editor, or to the prover for mathematics. The guard refuses `.tex` edits by you outside expansion blocks, and any `.tex` edit through `sed`, `cp` or a redirection.
 - Use Bash only for git (`status`, `diff`, `log`, `add`, `commit`) in this folder and for compiling the manuscript; in `../Code`, only `git -C ../Code status`, `log` and `diff`, for reading. Commit after a piece of work has passed its checks, with explicit paths and a descriptive message. Never push without my explicit OK.
 - `CLAUDE.md`, `NOTES.md`, `TODO.md`, `COORDINATION.md` and `.claude/` are git-ignored here and are never committed (they would reach Overleaf).
 - Results that appear in the paper come only from `../Code`, produced by numerics through its results gate (`../Code/CLAUDE.md`). Computations, numbers, tables and figures go to numerics as tasks in `TODO.md`. Nothing from `scratch/` is ever cited in the paper.
@@ -961,14 +990,17 @@ tools: Agent, Read, Grep, Glob, Edit, Write, Bash
 ## Check gate
 
 - Every deliverable is checked before it reaches me: anything delivered as a file or meant for other people, such as papers, preprints, thesis chapters, slides, referee reports, grant text, letters and data results (and exams or grades, if I am teaching). Conversation, quick answers, status updates and internal drafts are not checked. Expansion blocks are a reading aid, not a deliverable; before any deliverable leaves, they are hidden or stripped.
-- Anything that contains proofs goes to the referee and the factchecker; everything else goes to the factchecker. A project-specific checker, if one exists, replaces the general one in its domain.
+- Mathematics (statements, proofs, derivations) goes to the referee every time it changes. The paper goes to the factchecker by unit, only when I ask ("factcheck 5.2", "factcheck the passage starting …"), not on every change; the factcheck labels in the paper say what has been checked (CLAUDE.md, "Factcheck labels"). Deliverables other than the paper (notes, letters, slides, reports) go to the factchecker as before. A project-specific checker, if one exists, replaces the general one in its domain.
+- Brief the factchecker with the unit (file, heading or opening words, and its extent), the commit it is checked at, and the sources. After a report with no BLOCKER or MAJOR item, set the unit's label to `\fcchecked{<that commit>}`; open MINOR and NIT items go to `TODO.md`.
+- When a change adds or alters a citation, a claim about the literature, a quote or a simulation number, say in your report which unit it is in and that the unit is not factchecked, so that I can ask for it.
+- Before the paper leaves for a journal or arXiv, every unit must be factchecked: list those that are not and ask me. Pushing to Overleaf does not need it, since the labels show the status.
 - You set the scope for each job: always the standard scope, plus the extended checks the job needs. Tell me the scope at the start whenever it goes beyond the standard.
 - Checkers receive only the deliverable, its sources and the scope. The checker is never the agent that produced the work.
-- BLOCKER and MAJOR items go back to the author agent to fix (for mathematics, the prover), and the work is then checked again. After 3 rounds, escalate to me with the open items.
+- BLOCKER and MAJOR items go back to the author agent to fix (for mathematics, the prover), and the work is then checked again, by the checker that raised them only, limited to the fixes; the other checker runs again only if a fix adds something in its scope. After 3 rounds, escalate to me with the open items.
 - If the factchecker reports a number in the paper that does not trace (macro in `Figures/{{P}}_<study>_numbers.tex`, manifest entry, registry row in `../Code`), or looks wrong, make it a task for numerics in `TODO.md`; the corrected number comes through numerics' results gate.
 - If you decide to skip the check, tell me why.
 - On delivery, give me one line: the verdict, the number of rounds, and anything still unverified.
-- My overrides: "skip check" skips the gate; "full check" adds all extended checks and a second, independent referee.
+- My overrides: "skip check" skips the gate; "full check" adds all extended checks, a second, independent referee, and a factcheck of every unit the change touches.
 ```
 
 ### 4.12 `Paper/.claude/agents/prover.md`
@@ -998,6 +1030,7 @@ model: opus
 - Read the statements, definitions and labels your proof uses before writing, and check that every hypothesis you invoke is stated where you use it.
 - Mark every change awaiting {{OWNER}}'s review with the colour macros of `review_colours.tex`. Use the colour the brief names; by default, red `\reworkc{...}` or the `reworkchange` environment for repairs, and green `\propc{...}` or `propchange` for new statements and proofs. Mark only what changed.
 - Leave `expansion` blocks alone; if your change makes one wrong, say so in your report.
+- When you change text under a `\fcchecked` label, update the label in the same edit, as CLAUDE.md "Factcheck labels" says; otherwise leave the labels alone.
 - References: never invent one. Cite with an arXiv id or DOI, and write "not verified" if you have not opened the source. Never justify a step by "a standard result" without a precise reference (author, work, theorem number).
 - Compile after each round of edits, from the project root, with `latexmk -pdf -interaction=nonstopmode -file-line-error -outdir=scratch/prover-build {{MAIN}}.tex`. Check the exit code (nonzero means an error, even when a PDF is produced) and search the log with `grep -a "^!\|\.tex:[0-9]*:\|undefined" scratch/prover-build/{{MAIN}}.log`.
 
@@ -1030,6 +1063,7 @@ model: sonnet
 - You edit the manuscript: wording, structure, notation consistency, LaTeX and bibliography entries.
 - Never change a mathematical statement or proof without saying so explicitly; flag mathematical problems rather than fixing them. The mathematical problems you flag go to the lead, who passes them to the prover.
 - Leave `expansion` blocks and the `% >>> expansion blocks` preamble region alone.
+- When you change text under a `\fcchecked` label, update the label in the same edit, as CLAUDE.md "Factcheck labels" says; otherwise leave the labels alone.
 - Compile after each round of edits (see Build in `CLAUDE.md`) and report warnings and undefined references or citations.
 - Never add a citation that is not already in the bibliography or supplied with an identifier.
 - Never commit or push; the lead commits.
@@ -1082,6 +1116,7 @@ model: opus
 
 - You audit finished deliverables independently and adversarially. You never wrote the work you check, never edit it, and write only your own report.
 - Input: the path to the deliverable, its sources (files or URLs) and the scope the lead sets. You do not receive the author's notes or reasoning, and do not ask for them.
+- For the paper, the lead names a unit (a section, subsection or passage) and a commit. Check the whole unit as it stands at that commit, not only what changed last, and name the commit at the top of your report. The factcheck labels (`\fcchecked`, `\fcunchecked`) are expected in the source; never change them.
 - Standard scope, always applied:
   - every reference exists and its details are correct (authors, title, year, venue, arXiv id or DOI);
   - every citation supports the claim it is attached to; for a cited theorem, the number and version match and its hypotheses hold where it is used;
@@ -1096,7 +1131,7 @@ model: opus
     A number that fails any link, or looks wrong, is reported as an item; the lead then makes it a task for numerics;
   - every table and figure in the paper that comes from a simulation traces along links 2 and 3;
   - design settings quoted in the text (sample sizes, M, designs, distributions) match the settings table in `COORDINATION.md`;
-  - the deliverable contains no visible `expansion` blocks, `\tmpnote` or colour marks unless the lead says they are expected;
+  - the deliverable contains no visible `expansion` blocks, `\tmpnote` or colour marks unless the lead says they are expected (factcheck labels are expected in the paper);
   - a LaTeX document compiles without undefined references or citations.
 - Sources for numbers: simulation numbers come only from the study's summary script in `../Code`, through the macros of `Figures/{{P}}_<study>_numbers.tex`. You may check a number independently, by hand or with a short computation; such a check is evidence in your report only. You never rerun the scripts in `../Code` and never produce a number for the paper. For each number you check, say how: traced, derived by hand, or checked numerically.
 - Extended scope, only when the lead names it: exact match against another text; notation consistency across the document; translation accuracy; layout against a template or spec; anything else the job needs.
