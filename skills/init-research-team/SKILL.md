@@ -221,7 +221,7 @@ The paper carries labels saying which parts the factchecker has checked. They pr
 A guard, `.claude/hooks/guard.py`, runs before every Bash, Edit and Write call by the lead and every agent, and refuses calls that break these rules; {{OWNER}} changes it and the settings files by hand only (then `python3 .claude/hooks/guard.py --self-test`). If the guard refuses a call, do not try another way to do the same thing: report the refusal to the lead, who reports it to {{OWNER}}.
 
 - Who writes where, inside the project (anything outside it, such as a session scratchpad, and `scratch/` are free): the lead writes `NOTES.md`, `TODO.md`, `COORDINATION.md`, `CLAUDE.md`, `.gitignore`, the team files in `.claude/`, and expansion blocks and factcheck labels in `.tex` files (Edit tool only; any other change to the text is refused); prover the `.tex` files; latex-editor the `.tex` and `.bib` files; referee and factchecker only their `*.referee.md` / `*.factcheck.md` reports; code-reviewer only its report in `../Code/reviews/`; numerics `../Code`, except `results/` (written by the scripts) and never `Figures/{{P}}_*` by hand; hr the agent files and `review-rules.md`; any other agent only `scratch/`.
-- Git: only the lead commits here, only numerics commits in `../Code`; other agents use read-only git. No `commit -a` in any spelling, no `add -A`/`-u`/`.`/`-f`. Every push asks {{OWNER}}; force pushes are refused.
+- Git: only the lead commits here, only numerics commits in `../Code`; other agents use read-only git. No `commit -a` in any spelling, no `add -A`/`-u`/`.`/`-f`. Only the lead pushes (Paper to Overleaf, `../Code` to GitHub), and every push asks {{OWNER}}; force pushes are refused.
 - Nothing in the project is deleted, outside `scratch/` and LaTeX build files: no `rm`, `git rm`, `git clean`, `git checkout --`, `git restore`, `git reset --hard`, `git stash`, `git rebase`, `find -delete`, and no moving files out of the project.
 - Write paths out: the guard refuses a write whose target it cannot resolve (an unknown `$variable`).
 ```
@@ -973,11 +973,12 @@ tools: Agent, Read, Grep, Glob, Edit, Write, Bash
 - Keep `TODO.md` current: add open items as they arise, remove them once done. `TODO.md` is the only task list. `NOTES.md` holds the state, the lemma ledger and the decisions.
 - Before acting on something an earlier decision may cover (agent setup, notation, colours, git, simulations), search `## Decisions` in `NOTES.md` and read the entries that match.
 - Do yourself: discuss the mathematics with me, plan, read and search files, check what workers return, and keep `NOTES.md`, `TODO.md` and `COORDINATION.md` up to date. Edit no other file, with one exception: when I run `/expand` or `/expansions`, you splice, hide, show or remove `expansion` blocks and the `% >>> expansion blocks` preamble region as those skills say, with the Edit tool, and change nothing else in the `.tex` files; the same for factcheck labels (`\fcchecked`, `\fcunchecked`, CLAUDE.md "Factcheck labels"). Every other change to a `.tex` or `.bib` file, however small (a typo, a colour mark, wording I dictate), goes to latex-editor, or to the prover for mathematics. The guard refuses `.tex` edits by you outside expansion blocks, and any `.tex` edit through `sed`, `cp` or a redirection.
-- Use Bash only for git (`status`, `diff`, `log`, `add`, `commit`) in this folder and for compiling the manuscript; in `../Code`, only `git -C ../Code status`, `log` and `diff`, for reading. Commit after a piece of work has passed its checks, with explicit paths and a descriptive message. Never push without my explicit OK.
+- Use Bash only for git (`status`, `diff`, `log`, `add`, `commit`) in this folder and for compiling the manuscript; in `../Code`, only `git -C ../Code status`, `log` and `diff`, for reading, plus `git -C ../Code fetch` and `git -C ../Code push` to its GitHub remote, the push only with my explicit OK (you push `../Code`; numerics never does). Commit after a piece of work has passed its checks, with explicit paths and a descriptive message. Never push without my explicit OK.
 - `CLAUDE.md`, `NOTES.md`, `TODO.md`, `COORDINATION.md` and `.claude/` are git-ignored here and are never committed (they would reach Overleaf).
 - Results that appear in the paper come only from `../Code`, produced by numerics through its results gate (`../Code/CLAUDE.md`). Computations, numbers, tables and figures go to numerics as tasks in `TODO.md`. Nothing from `scratch/` is ever cited in the paper.
 - The lead never edits `../Code`. numerics commits there; the lead commits in this folder, including the `Figures/{{P}}_*` files the scripts write.
-- Before results go to the paper, dispatch code-reviewer on numerics' change (the commit range numerics names); numerics runs the paper run only after code-reviewer reports no BLOCKER or MAJOR item.
+- Before results go to the paper, dispatch code-reviewer on numerics' change (the commit range numerics names); numerics runs the paper run only after code-reviewer reports no BLOCKER or MAJOR item. Exception, the light path (`../Code/CLAUDE.md`): a change that cannot alter a number (axis, legend or caption text inside figures, colours, line and marker styles, sizes, margins, layout, comments) needs no code-reviewer round at the time. numerics states that the change is light and lists the files touched, commits, runs the tests and runs the paper run directly into `Figures/{{P}}_*`. Before committing, check: every non-comment line of the `Figures/{{P}}_*.tex` files (numbers macros, tables) is identical to the previous version; the manifest differs only in its commit and date lines; the PDFs other than the restyled ones differ only in metadata. Then I look at the figure in the built PDF. If I want changes, numerics adjusts and reruns, and nothing is committed here meanwhile. When I approve, commit `Figures/{{P}}_*`. If any check fails, or numerics is unsure whether a change is light, it goes the full path. The next full code-reviewer round covers the light commits made since the last review, by commit range.
+- If I decide something about a change before its paper run (on the light path, before you commit), numerics folds it into the same change, and one review (full path) or one check of yours (light path) covers everything. If a full review has already passed and the addition is light, the addition gets your check above, not a new review.
 - Delegate: anything that creates or changes a deliverable, code or data; drafting or repairing statements and proofs (to the prover); literature searches; computations; proof checks; LaTeX edits. Don't delegate a lookup you can do by reading one file.
 - Expansions: I run `/expand` (and `/expansions`) myself in this session; follow the skill, which writes the blocks with a fresh subagent so that they never come from the proof's author. Never let the prover write expansion blocks. Gaps the expansion reports become items in `TODO.md` and go to the prover. Do not start an expansion unasked.
 - Choose the specialist whose description fits. For a one-off task that fits nobody, use general-purpose; it writes only in `scratch/`, so never use it to edit the paper. If the same kind of task keeps coming up, propose a new specialist to me, and ask hr to create it only after I agree.
@@ -1201,6 +1202,8 @@ model: inherit
 
 - Follow the results gate in `../Code/CLAUDE.md`. Nothing reaches `Figures/{{P}}_*` until: the code is committed and the tree in `../Code` is clean; the tests pass with none skipped; code-reviewer reports no BLOCKER or MAJOR item for the change; and a small-M rerun of one setting with its recorded seed reproduces the stored result exactly.
 - code-reviewer is the reviewer for the gate, and the lead dispatches it: you cannot launch agents. When a change needs review, say so in your report, with the commit range and the files to review, and stop before the paper run that writes to `Figures/{{P}}_*`.
+- Light path: a change that cannot alter a number (axis, legend or caption text inside figures, colours, line and marker styles, sizes, margins, layout, comments) needs no code-reviewer round at the time. State in your report that the change is light and list the files touched, commit, run the tests (pass, no skips) and run the paper run directly into `Figures/{{P}}_*`. The lead then checks that the `Figures/{{P}}_*.tex` files (numbers macros, tables) are unchanged apart from comments, that the manifest differs only in its commit and date lines, and that the PDFs other than the restyled ones differ only in metadata, and {{OWNER}} looks at the figure in the built PDF. If {{OWNER}} wants changes, adjust and rerun; nothing is committed in Paper meanwhile. The next full code-reviewer round covers the light commits made since the last review, so name them by commit range. If you are unsure whether a change is light, or any change could alter a number (estimation, simulation, summary computations, selection of results files, or code shared with them), take the full path.
+- If {{OWNER}} decides something about a change before its paper run (on the light path, before the lead commits), fold it into the same change. One review (full path) or one lead check (light path) covers everything. If a full review has already passed and the addition is light, the addition gets the lead's check, not a new review.
 - When the registry changes, the matching row of the settings table in `COORDINATION.md` must change with it. The lead owns `COORDINATION.md`: give the exact new row in your report, in the table's format, and do not edit the file yourself.
 
 ## Outputs
@@ -1240,7 +1243,7 @@ You review changes to the {{LANG}} simulation code in `../Code` before their res
 
 1. `../Code/CLAUDE.md` (layout, seed conventions, results gate) and `../Code/NOTES.md`.
 2. `COORDINATION.md`, sections "Model and notation" and "Simulation settings".
-3. The change: the commit range or files named in your task. If none is named, review `git -C ../Code diff HEAD` and the commits since the last report in `../Code/reviews/`.
+3. The change: the commit range or files named in your task. If none is named, review `git -C ../Code diff HEAD` and the commits since the last report in `../Code/reviews/`. The range includes the light commits (changes that cannot alter a number, such as styles, colours, layout and figure text) made since the last review: they went to the paper without a review at the time, so review them as part of the range and check that each is in fact light.
 4. Every file the change touches, and the code it calls.
 5. Where the change bears on the theory, the relevant sections of the paper.
 
@@ -1389,6 +1392,17 @@ Results go to the paper only through `../Paper/Figures/{{P}}_*` (figures, tables
 4. `code-reviewer` reports no BLOCKER or MAJOR item for the change.
 5. One setting, rerun at small M with its recorded seed, reproduces the stored result exactly.
 
+Two paths lead through the gate:
+
+1. **Full path**, for any change that could alter a number: estimation, simulation, summary computations, the selection of results files, or code shared with them. Items 1–5 above, then the paper run.
+2. **Light path**, for changes that cannot alter a number: axis and legend text inside figures, colours, line and marker styles, sizes, margins, layout, comments. Item 4 (`code-reviewer`) is deferred:
+   a. numerics states that the change is light and lists the files touched, commits (clean tree), runs the tests (pass, no skips) and runs the paper run directly into `../Paper/Figures/{{P}}_*`.
+   b. The lead checks, before committing in Paper: every non-comment line of the `Figures/{{P}}_*.tex` files is identical to the previous version; the manifest differs only in its commit and date lines; PDFs other than the restyled ones differ only in metadata.
+   c. {{OWNER}} looks at the figure in the built PDF. If {{OWNER}} wants changes, numerics adjusts and reruns (a again). The lead commits only after {{OWNER}}'s approval.
+   d. The next full `code-reviewer` review covers the light commits since the last review, by commit range.
+   e. If any check in b fails, or numerics is unsure whether a change is light, the full path applies.
+3. **Mid-run decisions.** If {{OWNER}} decides something about a change before its paper run (or, on the light path, before the lead commits), numerics folds it into the same change, and one review or one lead check covers everything. If a full review has already passed and the addition is light, the addition gets the lead's check of 2b, not a new review.
+
 Every file written to `../Paper/Figures/{{P}}_*` starts with a comment line naming the script, the Code commit, the results file(s) and the date; a PDF carries that line in its metadata. The study's summary script also writes `../Paper/Figures/{{P}}_<study>_manifest.txt`, listing every file it wrote, with the script, the Code commit, the results files and the date.
 
 Runs meant for the paper refuse to start on a dirty tree. Check runs (`--M=<m>`, `--fig-dir=<dir>`) may run on a dirty tree and save to `results/<study>/checks/`; `--fig-dir` may not point into `../Paper`.
@@ -1398,7 +1412,7 @@ Files in `results/` are never overwritten or deleted. A rerun adds a new timesta
 ## Git
 
 - Commit explicit paths with descriptive messages (what changed and why). Never `git add -A` or `git commit -a`.
-- Never push without {{OWNER}}'s explicit OK.
+- numerics never pushes. The lead pushes this folder to GitHub, only with {{OWNER}}'s explicit OK.
 ```
 
 ### 4.23 `Code/NOTES.md`
